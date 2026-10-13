@@ -1,8 +1,10 @@
-import { ValidationPipe } from '@nestjs/common';
+import { RequestMethod, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { text } from 'express';
 import { AppModule } from './app.module';
 import { corsOriginOption } from './common/http/cors-origin';
+import { ADMS_ALL_PATHS, ADMS_MAX_BODY } from './modules/hr/zkteco/adms-protocol';
 
 function assertJwtSecret() {
   const secret = process.env.JWT_SECRET?.trim() ?? '';
@@ -26,7 +28,14 @@ async function bootstrap() {
   assertJwtSecret();
   const app = await NestFactory.create(AppModule);
 
-  app.setGlobalPrefix('api/v1');
+  // ZKTeco terminals post plain-text ATTLOG to fixed /iclock/* paths (no prefix, any content-type).
+  app.use(
+    ADMS_ALL_PATHS.map((p) => `/${p}`),
+    text({ type: () => true, limit: ADMS_MAX_BODY }),
+  );
+  app.setGlobalPrefix('api/v1', {
+    exclude: ADMS_ALL_PATHS.map((path) => ({ path, method: RequestMethod.ALL })),
+  });
   app.enableCors({
     origin: corsOriginOption(),
     credentials: true,

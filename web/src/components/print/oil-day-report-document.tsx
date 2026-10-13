@@ -1,5 +1,6 @@
 import { OIL_SOURCES, OIL_TYPES, oilMeta, oilSourceMeta } from '@/lib/sales-nav';
 import { formatNumber } from '@/lib/utils';
+import { dayReportCopies } from '@/lib/print-plan';
 
 export type DayReportColumn = {
   oilSource: string;
@@ -24,6 +25,26 @@ export type OilDayReportPayload = {
   columns: DayReportColumn[];
   netTotal: number;
   footer?: string;
+  cashRegister?: { code: string; name: string } | null;
+  generatedByName?: string;
+  generatedFromDevice?: string | null;
+  generatedAtLabel?: string;
+  copyKind?: 'user' | 'archive';
+  /** Compact cash session snapshot (optional) */
+  cashSession?: {
+    openingCash?: number;
+    cashSales?: number;
+    expectedCash?: number;
+  } | null;
+};
+
+export type OilDayReportMeta = {
+  cashRegister?: { code: string; name: string } | null;
+  generatedByName?: string;
+  generatedFromDevice?: string | null;
+  generatedAtLabel?: string;
+  copyKind?: 'user' | 'archive';
+  cashSession?: OilDayReportPayload['cashSession'];
 };
 
 function n(v: number, decimals = 1) {
@@ -39,6 +60,15 @@ function shortHeader(oilSource: string, oilType: string) {
   const t = oilMeta(oilType).shortLabel;
   if (oilSource === 'FARMER') return `${t} فلاح`;
   return t;
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-start justify-between gap-2 text-[10px]">
+      <span className="shrink-0 opacity-80">{label}</span>
+      <span className="text-left font-bold tabular-nums">{value}</span>
+    </div>
+  );
 }
 
 function ReportMatrix({
@@ -133,6 +163,10 @@ export function OilDayReportDocument({ data }: { data: OilDayReportPayload }) {
       zeroCol('FARMER', t.value),
   );
 
+  const registerLabel =
+    data.cashRegister?.name || data.cashRegister?.code || null;
+  const copyKind = data.copyKind ?? 'archive';
+
   return (
     <div
       className="thermal-receipt oil-day-report mx-auto w-[80mm] bg-white px-1.5 py-3 text-black"
@@ -140,8 +174,40 @@ export function OilDayReportDocument({ data }: { data: OilDayReportPayload }) {
     >
       <p className="mb-2 text-center text-[14px] font-black tracking-wide">يومية بيع الزيت</p>
 
+      <div className="mb-2 space-y-0.5 border-b border-dashed border-black pb-2">
+        {registerLabel ? <InfoRow label="الصندوق" value={registerLabel} /> : null}
+        <InfoRow label="التاريخ" value={data.dateLabel} />
+        {data.generatedByName ? (
+          <InfoRow label="أُنشئت بواسطة" value={data.generatedByName} />
+        ) : null}
+        {data.generatedFromDevice ? (
+          <InfoRow label="من الجهاز" value={data.generatedFromDevice} />
+        ) : null}
+        {data.generatedAtLabel ? (
+          <InfoRow label="وقت الإنشاء" value={data.generatedAtLabel} />
+        ) : null}
+      </div>
+
       <ReportMatrix title={oilSourceMeta('STORED').label} cols={storedCols} />
       <ReportMatrix title={oilSourceMeta('FARMER').label} cols={farmerCols} />
+
+      {data.cashSession &&
+      (data.cashSession.openingCash != null ||
+        data.cashSession.cashSales != null ||
+        data.cashSession.expectedCash != null) ? (
+        <div className="mb-2 space-y-0.5 border-t border-dashed border-black pt-2 text-[10px]">
+          <p className="mb-0.5 text-center text-[10px] font-bold opacity-80">ملخص الصندوق</p>
+          {data.cashSession.openingCash != null ? (
+            <InfoRow label="افتتاح" value={money(data.cashSession.openingCash)} />
+          ) : null}
+          {data.cashSession.cashSales != null ? (
+            <InfoRow label="مبيعات نقدية" value={money(data.cashSession.cashSales)} />
+          ) : null}
+          {data.cashSession.expectedCash != null ? (
+            <InfoRow label="المتوقع" value={money(data.cashSession.expectedCash)} />
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="my-2 border-t-2 border-black" />
       <div className="flex items-center justify-between gap-2 px-1 text-[13px] font-black">
@@ -151,7 +217,28 @@ export function OilDayReportDocument({ data }: { data: OilDayReportPayload }) {
       <div className="my-2 border-t border-dashed border-black" />
 
       <p className="text-center text-[11px] font-bold tabular-nums">{data.dateLabel}</p>
-      <p className="mt-1 text-center text-[10px] font-bold">{data.footer || 'الارشيف'}</p>
+      {copyKind === 'user' ? (
+        <p className="mt-1 text-center text-[10px] font-bold">
+          تحت إشراف: {data.generatedByName || '—'}
+        </p>
+      ) : (
+        <p className="mt-1 text-center text-[10px] font-black tracking-wide">
+          {data.footer || 'COPIE ARCHIVE · نسخة الأرشيف'}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Two thermal copies (user + archive) with a page break between them. */
+export function OilDayReportPrintCopies({ data }: { data: OilDayReportPayload }) {
+  return (
+    <div className="oil-day-report-print-copies">
+      {dayReportCopies(data).map((copy) => (
+        <div key={copy.label} className="oil-day-report-copy">
+          <OilDayReportDocument data={copy.data} />
+        </div>
+      ))}
     </div>
   );
 }
@@ -176,6 +263,7 @@ export function buildOilDayReportPayload(
     }>;
   },
   dateLabel: string,
+  meta?: OilDayReportMeta,
 ): OilDayReportPayload {
   const buckets = report.byBucket ?? [];
   const columns: DayReportColumn[] = [];
@@ -207,6 +295,12 @@ export function buildOilDayReportPayload(
     dateLabel,
     columns,
     netTotal: report.summary.net,
-    footer: 'الارشيف',
+    footer: 'نسخة الأرشيف',
+    cashRegister: meta?.cashRegister ?? null,
+    generatedByName: meta?.generatedByName,
+    generatedFromDevice: meta?.generatedFromDevice ?? null,
+    generatedAtLabel: meta?.generatedAtLabel,
+    copyKind: meta?.copyKind,
+    cashSession: meta?.cashSession ?? null,
   };
 }

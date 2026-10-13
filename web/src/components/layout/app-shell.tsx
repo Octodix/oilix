@@ -7,7 +7,7 @@ import { TopHeader } from './top-header';
 import { AppSidebar } from './app-sidebar';
 import { SeasonViewBanner } from '@/components/season/season-view-banner';
 import { DeviceStatusBanner } from '@/components/devices/device-status-banner';
-import { useAuthStore } from '@/lib/auth-store';
+import { useAuthHydrated, useAuthStore } from '@/lib/auth-store';
 import { canAccessWorkspace } from '@/lib/permission-catalog';
 import { useWorkspaceStore, workspaceLoginPath } from '@/lib/workspace-store';
 import { BRAND } from '@/lib/navigation';
@@ -16,6 +16,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const token = useAuthStore((s) => s.token);
   const user = useAuthStore((s) => s.user);
+  const hydrated = useAuthHydrated();
   const setWorkspace = useWorkspaceStore((s) => s.setWorkspace);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -24,8 +25,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [setWorkspace]);
 
   useEffect(() => {
-    if (!token) router.replace(workspaceLoginPath('mill'));
-  }, [token, router]);
+    if (hydrated && !token) router.replace(workspaceLoginPath('mill'));
+  }, [hydrated, token, router]);
 
   useEffect(() => {
     if (token && user && !canAccessWorkspace(user.permissions, 'mill', user.role)) {

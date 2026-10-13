@@ -1,5 +1,7 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsDateString,
@@ -155,11 +157,17 @@ export class CreateOilSaleItemDto {
   @Min(0.01)
   quantityL?: number;
 
+  /**
+   * Price shown to the cashier. Never used for the sale: the server prices from
+   * configuration and rejects the request if this differs (409 PRICE_CHANGED).
+   */
+  @IsOptional()
   @Type(() => Number)
   @IsNumber()
   @Min(0)
-  unitPrice!: number;
+  unitPrice?: number;
 
+  /** Ignored for oil lines — oil is always priced per litre from configuration. */
   @IsOptional()
   @IsEnum(['PER_LITRE', 'FIXED_CONTAINER'] as const)
   pricingMode?: 'PER_LITRE' | 'FIXED_CONTAINER';
@@ -172,8 +180,15 @@ export class CreateOilSaleItemDto {
 }
 
 export class CreateOilSaleDto {
+  /** Omit for a walk-in counter sale (زبون عابر) — debt then is refused. */
+  @IsOptional()
   @IsUUID()
-  customerId!: string;
+  customerId?: string;
+
+  /** Held sale being finalized — its server-captured prices apply; deleted atomically. */
+  @IsOptional()
+  @IsUUID()
+  holdId?: string;
 
   @IsOptional()
   @IsEnum(OilSource)
@@ -195,7 +210,8 @@ export class CreateOilSaleDto {
   @Min(0.01)
   quantityL?: number;
 
-  @ValidateIf((o: CreateOilSaleDto) => !o.items?.length)
+  /** Compare-only, same rule as item unitPrice. */
+  @IsOptional()
   @Type(() => Number)
   @IsNumber()
   @Min(0)
@@ -239,6 +255,36 @@ export class CreateOilSaleDto {
   @IsOptional()
   @IsBoolean()
   overrideContainerStock?: boolean;
+}
+
+export class SaveOilSaleHoldDto {
+  @IsOptional()
+  @IsUUID()
+  customerId?: string;
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => CreateOilSaleItemDto)
+  items!: CreateOilSaleItemDto[];
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  assistanceFixed?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  assistancePerLitre?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  notes?: string;
 }
 
 export class CreateOilContainerDto {
@@ -526,6 +572,17 @@ export class OilReportQueryDto {
   @IsOptional()
   @IsUUID()
   cashRegisterId?: string;
+}
+
+export class RecordOilDayReportPrintDto {
+  @IsDateString()
+  from!: string;
+
+  @IsDateString()
+  to!: string;
+
+  @IsUUID()
+  cashRegisterId!: string;
 }
 
 export class UpdateOilSalesSettingsDto {

@@ -86,6 +86,39 @@ export const OIL_SALES_PERMISSIONS = [
   'OIL_SALES_SETTINGS_EDIT',
 ] as const;
 
+export const HR_PERMISSIONS = [
+  'HR_ACCESS',
+  'HR_DASHBOARD_VIEW',
+  'HR_EMPLOYEES_VIEW',
+  'HR_EMPLOYEES_CREATE',
+  'HR_EMPLOYEES_EDIT',
+  'HR_EMPLOYEES_ARCHIVE',
+  'HR_SALARIES_VIEW',
+  'HR_SALARIES_EDIT',
+  'HR_CONTRACTS_MANAGE',
+  'HR_SCHEDULES_MANAGE',
+  'HR_ATTENDANCE_VIEW',
+  'HR_ATTENDANCE_CORRECT',
+  'HR_LEAVE_MANAGE',
+  'HR_LEAVE_APPROVE',
+  'HR_OVERTIME_MANAGE',
+  'HR_OVERTIME_APPROVE',
+  'HR_ADVANCES_MANAGE',
+  'HR_BONUSES_MANAGE',
+  'HR_DEDUCTIONS_MANAGE',
+  'HR_PAYROLL_VIEW',
+  'HR_PAYROLL_CALCULATE',
+  'HR_PAYROLL_VALIDATE',
+  'HR_SALARY_PAY',
+  'HR_EXPENSES_VIEW',
+  'HR_EXPENSES_MANAGE',
+  'HR_REPORTS_VIEW',
+  'HR_DEVICES_VIEW',
+  'HR_DEVICES_MANAGE',
+  'HR_DEVICES_SYNC',
+  'HR_SETTINGS_MANAGE',
+] as const;
+
 /** Alias rétrocompatibles → permissions granulaires */
 export const PERMISSION_ALIASES: Record<string, string[]> = {
   OIL_SALES_READ: [
@@ -137,6 +170,20 @@ export const PERMISSION_ALIASES: Record<string, string[]> = {
   ],
   OIL_SALES_DEVICES_MANAGE: ['OIL_SALES_DEVICES_VIEW'],
   MILL_DEVICES_MANAGE: ['MILL_DEVICES_VIEW'],
+  HR_EMPLOYEES_CREATE: ['HR_EMPLOYEES_VIEW'],
+  HR_EMPLOYEES_EDIT: ['HR_EMPLOYEES_VIEW'],
+  HR_EMPLOYEES_ARCHIVE: ['HR_EMPLOYEES_VIEW'],
+  HR_SALARIES_EDIT: ['HR_SALARIES_VIEW'],
+  HR_CONTRACTS_MANAGE: ['HR_EMPLOYEES_VIEW'],
+  HR_ATTENDANCE_CORRECT: ['HR_ATTENDANCE_VIEW'],
+  HR_LEAVE_APPROVE: ['HR_LEAVE_MANAGE'],
+  HR_OVERTIME_APPROVE: ['HR_OVERTIME_MANAGE'],
+  HR_PAYROLL_CALCULATE: ['HR_PAYROLL_VIEW'],
+  HR_PAYROLL_VALIDATE: ['HR_PAYROLL_VIEW'],
+  HR_SALARY_PAY: ['HR_PAYROLL_VIEW'],
+  HR_EXPENSES_MANAGE: ['HR_EXPENSES_VIEW'],
+  HR_DEVICES_MANAGE: ['HR_DEVICES_VIEW', 'HR_DEVICES_SYNC'],
+  HR_DEVICES_SYNC: ['HR_DEVICES_VIEW'],
 };
 
 const MILL_OPS = [
@@ -163,6 +210,9 @@ export function expandPermissions(held: string[]): Set<string> {
   if ([...set].some((p) => p.startsWith('OIL_SALES') || p.startsWith('OIL_STOCK') || p.startsWith('OIL_INVENTORY') || p.startsWith('OIL_CUSTOMERS'))) {
     set.add('OIL_SALES_ACCESS');
   }
+  if ([...set].some((p) => p.startsWith('HR_'))) {
+    set.add('HR_ACCESS');
+  }
   return set;
 }
 
@@ -176,17 +226,19 @@ export function hasPermission(
   return expandPermissions(held).has(required);
 }
 
+const WORKSPACE_ACCESS = { mill: 'MILL_ACCESS', sales: 'OIL_SALES_ACCESS', hr: 'HR_ACCESS' } as const;
+
 export function canAccessWorkspace(
   held: string[] | undefined,
-  workspace: 'mill' | 'sales',
+  workspace: 'mill' | 'sales' | 'hr',
   role?: string,
 ): boolean {
   if (role === 'ADMIN') return true;
-  return hasPermission(held, workspace === 'sales' ? 'OIL_SALES_ACCESS' : 'MILL_ACCESS', role);
+  return hasPermission(held, WORKSPACE_ACCESS[workspace], role);
 }
 
 export type PermissionMatrixGroup = {
-  workspace: 'mill' | 'sales';
+  workspace: 'mill' | 'sales' | 'hr';
   section: string;
   sectionAr: string;
   actions: { key: string; label: string }[];
@@ -240,7 +292,7 @@ export const PERMISSION_MATRIX: PermissionMatrixGroup[] = [
       { key: 'OIL_SALES_SALES_CANCEL', label: 'إلغاء' },
       { key: 'OIL_SALES_SALES_DELETE', label: 'حذف' },
       { key: 'OIL_SALES_SALES_REPRINT', label: 'إعادة طباعة' },
-      { key: 'OIL_SALES_SALES_CHANGE_PRICE', label: 'تغيير السعر' },
+      { key: 'OIL_SALES_SALES_CHANGE_PRICE', label: 'تغيير السعر (معطّل — السعر من الإعدادات)' },
       { key: 'OIL_SALES_SALES_ALLOW_DEBT', label: 'بيع بالدين' },
       { key: 'OIL_SALES_PRINT_RECEIPT', label: 'طباعة الوصل' },
     ],
@@ -311,7 +363,7 @@ export const PERMISSION_MATRIX: PermissionMatrixGroup[] = [
       { key: 'OIL_SALES_CONTAINERS_EDIT', label: 'تعديل' },
       { key: 'OIL_SALES_CONTAINERS_DELETE', label: 'تعطيل / حذف' },
       { key: 'OIL_SALES_CONTAINERS_SELL', label: 'بيع ضلف فارغة' },
-      { key: 'OIL_SALES_CONTAINERS_CHANGE_PRICE', label: 'تغيير سعر الضلف' },
+      { key: 'OIL_SALES_CONTAINERS_CHANGE_PRICE', label: 'تغيير سعر الضلف (معطّل — السعر من إعدادات الضلف)' },
     ],
   },
   {
@@ -367,4 +419,75 @@ export const PERMISSION_MATRIX: PermissionMatrixGroup[] = [
       { key: 'OIL_SALES_SETTINGS_EDIT', label: 'تعديل' },
     ],
   },
+  ...hrPermissionGroups(),
 ];
+
+function hrPermissionGroups(): PermissionMatrixGroup[] {
+  return [
+    {
+      workspace: 'hr',
+      section: 'hr-access',
+      sectionAr: 'الدخول ولوحة التحكم',
+      actions: [
+        { key: 'HR_ACCESS', label: 'دخول الموارد البشرية' },
+        { key: 'HR_DASHBOARD_VIEW', label: 'لوحة التحكم' },
+        { key: 'HR_REPORTS_VIEW', label: 'التقارير' },
+        { key: 'HR_SETTINGS_MANAGE', label: 'إعدادات الموارد البشرية' },
+      ],
+    },
+    {
+      workspace: 'hr',
+      section: 'hr-employees',
+      sectionAr: 'العمال والعقود',
+      actions: [
+        { key: 'HR_EMPLOYEES_VIEW', label: 'عرض العمال' },
+        { key: 'HR_EMPLOYEES_CREATE', label: 'إضافة عامل' },
+        { key: 'HR_EMPLOYEES_EDIT', label: 'تعديل عامل' },
+        { key: 'HR_EMPLOYEES_ARCHIVE', label: 'أرشفة / مغادرة' },
+        { key: 'HR_CONTRACTS_MANAGE', label: 'إدارة العقود' },
+        { key: 'HR_SALARIES_VIEW', label: 'عرض الرواتب (حساس)' },
+        { key: 'HR_SALARIES_EDIT', label: 'تعديل الرواتب' },
+      ],
+    },
+    {
+      workspace: 'hr',
+      section: 'hr-attendance',
+      sectionAr: 'الحضور والتوقيت',
+      actions: [
+        { key: 'HR_ATTENDANCE_VIEW', label: 'عرض الحضور' },
+        { key: 'HR_ATTENDANCE_CORRECT', label: 'تصحيح الحضور' },
+        { key: 'HR_SCHEDULES_MANAGE', label: 'إدارة التوقيت' },
+        { key: 'HR_LEAVE_MANAGE', label: 'إدارة العطل والغيابات' },
+        { key: 'HR_LEAVE_APPROVE', label: 'الموافقة على العطل' },
+        { key: 'HR_OVERTIME_MANAGE', label: 'إدارة الساعات الإضافية' },
+        { key: 'HR_OVERTIME_APPROVE', label: 'الموافقة على الساعات الإضافية' },
+      ],
+    },
+    {
+      workspace: 'hr',
+      section: 'hr-pay',
+      sectionAr: 'الأجور (حساس)',
+      actions: [
+        { key: 'HR_ADVANCES_MANAGE', label: 'التسبيقات والقروض' },
+        { key: 'HR_BONUSES_MANAGE', label: 'المنح' },
+        { key: 'HR_DEDUCTIONS_MANAGE', label: 'الاقتطاعات' },
+        { key: 'HR_PAYROLL_VIEW', label: 'عرض كشوف الأجور' },
+        { key: 'HR_PAYROLL_CALCULATE', label: 'حساب الأجور' },
+        { key: 'HR_PAYROLL_VALIDATE', label: 'اعتماد الأجور' },
+        { key: 'HR_SALARY_PAY', label: 'دفع الأجور' },
+        { key: 'HR_EXPENSES_VIEW', label: 'عرض مصاريف العمال' },
+        { key: 'HR_EXPENSES_MANAGE', label: 'تسجيل مصاريف العمال' },
+      ],
+    },
+    {
+      workspace: 'hr',
+      section: 'hr-devices',
+      sectionAr: 'أجهزة الحضور',
+      actions: [
+        { key: 'HR_DEVICES_VIEW', label: 'عرض الأجهزة' },
+        { key: 'HR_DEVICES_SYNC', label: 'مزامنة / استيراد' },
+        { key: 'HR_DEVICES_MANAGE', label: 'إدارة الأجهزة والربط' },
+      ],
+    },
+  ];
+}

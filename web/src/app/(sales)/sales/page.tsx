@@ -16,6 +16,7 @@ import {
 import { formatNumber, formatMoney, formatDateTimeDz, cn } from '@/lib/utils';
 import { useAuthStore } from '@/lib/auth-store';
 import { OIL_SALE_DETAIL_PATH } from '@/lib/oil-sale-receipt';
+import { saleCustomerName } from '@/lib/sales-cart';
 
 type StockSummary = {
   totalAdded: number;
@@ -56,7 +57,7 @@ type Dash = {
     quantityL: string | number;
     finalAmount: string | number;
     createdAt: string;
-    customer: { name: string };
+    customer: { name: string } | null;
   }>;
   latestAdditions: Array<{
     id: string;
@@ -337,7 +338,7 @@ export default function SalesDashboardPage() {
                           #{s.receiptNumber}
                         </Link>
                         {' · '}
-                        {s.customer.name}
+                        {saleCustomerName(s.customer)}
                       </p>
                       <p className="text-xs text-[var(--app-text-dim)]">
                         {m

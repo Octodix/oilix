@@ -15,9 +15,7 @@ import { hasPermission } from '../../common/permissions/permission-catalog';
 import {
   DEVICE_PENDING_MESSAGE,
   DEVICE_REQUIRED_MESSAGE,
-  DEVICE_WORKSPACE_MESSAGE,
   currentDevice,
-  workspaceMatches,
 } from '../devices/device-context';
 import {
   cashVarianceLabel,
@@ -141,9 +139,7 @@ export class CashRegisterService {
       throw new ForbiddenException('هذا الجهاز غير مصرّح له بتنفيذ العمليات.');
     }
     if (device.status === 'PENDING') throw new ForbiddenException(DEVICE_PENDING_MESSAGE);
-    if (!workspaceMatches(device.workspace, 'sales')) {
-      throw new ForbiddenException(DEVICE_WORKSPACE_MESSAGE);
-    }
+    // Workspace access is via user permissions (OIL_SALES_ACCESS), not Device.workspace.
     if (opts?.requireCashRegister !== false && !device.cashRegisterId) {
       throw new BadRequestException('هذا الجهاز غير مربوط بصندوق نقدي.');
     }

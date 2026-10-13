@@ -820,6 +820,16 @@ html {
   }
 }
 
+.oil-day-report-print-copies .oil-day-report-copy {
+  page-break-after: always;
+  break-after: page;
+}
+
+.oil-day-report-print-copies .oil-day-report-copy:last-child {
+  page-break-after: auto;
+  break-after: auto;
+}
+
 /* ——— وصل تسليم (زبون) ——— */
 .oil-client-receipt-table th,
 .oil-client-receipt-table td {
@@ -1406,5 +1416,75 @@ html {
   @page {
     size: 80mm auto;
     margin: 0;
+  }
+}
+
+/* ——— A4 documents (HR payslip, HR reports) ——— */
+.a4-document {
+  width: 190mm;
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 8mm;
+  background: #fff;
+  color: #000;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.a4-document table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.a4-document th,
+.a4-document td {
+  border: 1px solid #555;
+  padding: 3px 5px;
+  vertical-align: top;
+}
+
+.a4-document th {
+  background: #eee;
+  font-weight: 800;
+}
+
+.a4-preview-shell {
+  min-height: calc(100vh - 7rem);
+  padding: 1.5rem 1rem 2rem;
+  background: linear-gradient(180deg, #e8ece6 0%, #d4d8d2 100%);
+}
+
+.a4-preview-shell .a4-document {
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.08),
+    0 8px 32px rgba(0, 0, 0, 0.12);
+}
+
+.a4-page-break {
+  break-after: page;
+  page-break-after: always;
+}
+
+@media print {
+  html:has(.a4-document),
+  html:has(.a4-document) body {
+    width: auto !important;
+  }
+
+  .a4-preview-shell {
+    padding: 0 !important;
+    background: #fff !important;
+    min-height: 0 !important;
+  }
+
+  .a4-document {
+    width: auto !important;
+    max-width: none !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .a4-document tr {
+    page-break-inside: avoid;
   }
 }

@@ -20,9 +20,11 @@ import { FiltrationModule } from './modules/filtration/filtration.module';
 import { OilSalesModule } from './modules/oil-sales/oil-sales.module';
 import { DevicesModule } from './modules/devices/devices.module';
 import { DeviceInterceptor } from './modules/devices/device.interceptor';
+import { PrintingModule } from './modules/printing/printing.module';
 import { SeasonModule } from './common/season/season.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { HealthModule } from './modules/health/health.module';
+import { HrModule } from './modules/hr/hr.module';
 
 @Module({
   imports: [
@@ -40,12 +42,14 @@ import { HealthModule } from './modules/health/health.module';
     FiltrationModule,
     DevicesModule,
     OilSalesModule,
+    PrintingModule,
     PaymentsModule,
     SettingsModule,
     ReportsModule,
     DashboardModule,
     NotificationsModule,
     MobileModule,
+    HrModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

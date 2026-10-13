@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from 'react';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { hasPermission as checkPermission } from '@/lib/permission-catalog';
@@ -59,3 +60,15 @@ export const useAuthStore = create<AuthState>()(
     },
   ),
 );
+
+/**
+ * False during the SSR/hydration render, where the store still reports the server snapshot
+ * (token null) — redirecting on "no token" before this is true bounces every deep link / refresh.
+ */
+export function useAuthHydrated(): boolean {
+  return useSyncExternalStore(
+    (cb) => useAuthStore.persist.onFinishHydration(cb),
+    () => useAuthStore.persist.hasHydrated(),
+    () => false,
+  );
+}

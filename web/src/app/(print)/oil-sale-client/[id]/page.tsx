@@ -10,6 +10,8 @@ import type { OilSaleReceiptPayload } from '@/components/print/oil-sale-receipt-
 import { ThermalPrintFrame } from '@/components/print/thermal-print-frame';
 import { Button } from '@/components/ui/button';
 import { isOilSaleId, OIL_SALE_RECEIPT_API } from '@/lib/oil-sale-receipt';
+import { useDirectPrint } from '@/hooks/use-direct-print';
+import { oilSaleClientReceiptRequest } from '@/lib/print-documents';
 
 export default function OilSaleClientPrintPage({
   params,
@@ -44,6 +46,7 @@ function OilSaleClientPrintBody({ id }: { id: string }) {
   });
 
   const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+  const { print, busy, settings } = useDirectPrint();
 
   useEffect(() => {
     if (data) document.title = `وصل تسليم ${data.sale.receiptNumber}`;
@@ -100,7 +103,20 @@ function OilSaleClientPrintBody({ id }: { id: string }) {
   }
 
   return (
-    <ThermalPrintFrame title={`وصل تسليم · ${data.sale.receiptNumber}`}>
+    <ThermalPrintFrame
+      title={`وصل تسليم · ${data.sale.receiptNumber}`}
+      directPrint={
+        settings.directPrinting
+          ? {
+              busy,
+              onPrint: () =>
+                void print(oilSaleClientReceiptRequest(id, { data, isReprint: true }), {
+                  browserFallback: () => window.print(),
+                }),
+            }
+          : undefined
+      }
+    >
       <OilSaleClientReceiptDocument data={data} />
     </ThermalPrintFrame>
   );

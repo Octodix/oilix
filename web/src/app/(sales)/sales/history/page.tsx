@@ -7,6 +7,7 @@ import { Printer, Ban } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { OIL_SOURCES, OIL_TYPES, oilMeta, oilSourceMeta } from '@/lib/sales-nav';
+import { saleCustomerName } from '@/lib/sales-cart';
 import { formatNumber, formatMoney, formatDateTimeDz, cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,7 +30,7 @@ type Sale = {
   status: string;
   saleDate: string;
   createdAt: string;
-  customer: { id: string; name: string; phone?: string | null };
+  customer: { id: string; name: string; phone?: string | null } | null;
   createdBy?: { username: string; firstName?: string | null };
   deviceCode?: string | null;
   cashRegisterName?: string | null;
@@ -186,7 +187,7 @@ export default function SalesHistoryPage() {
                     </Link>
                   </td>
                   <td className="px-3 py-2 text-xs">{formatDateTimeDz(s.createdAt)}</td>
-                  <td className="px-3 py-2 font-semibold">{s.customer.name}</td>
+                  <td className="px-3 py-2 font-semibold">{saleCustomerName(s.customer)}</td>
                   <td className="px-3 py-2 text-xs">{s.cashRegisterName || s.cashRegisterCode || '—'}</td>
                   <td className="px-3 py-2 text-xs font-mono">{s.deviceCode || '—'}</td>
                   <td className="px-3 py-2 text-xs">{src ? src.label : '—'}</td>

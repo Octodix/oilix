@@ -33,6 +33,21 @@ export function computeSalePaymentFields(netAmount: number, amountPaid: number) 
   };
 }
 
+/**
+ * Debt needs an identifiable customer: a walk-in sale (no customer) must be paid in full.
+ * Returns an error code or null when the sale may proceed.
+ */
+export function saleDebtViolation(input: {
+  remainingAmount: number;
+  customerId?: string | null;
+  canAllowDebt: boolean;
+}): 'DEBT_NOT_ALLOWED' | 'DEBT_REQUIRES_CUSTOMER' | null {
+  if (!(roundMoney(input.remainingAmount) > 0)) return null;
+  if (!input.canAllowDebt) return 'DEBT_NOT_ALLOWED';
+  if (!input.customerId) return 'DEBT_REQUIRES_CUSTOMER';
+  return null;
+}
+
 export type DebtSaleSlice = {
   saleId: string;
   remainingAmount: number;

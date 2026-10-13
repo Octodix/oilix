@@ -8,12 +8,15 @@ import { Printer } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { oilMeta, oilSourceMeta } from '@/lib/sales-nav';
+import { saleCustomerName } from '@/lib/sales-cart';
 import { formatNumber, formatMoney, formatDateTimeDz } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuthStore } from '@/lib/auth-store';
 import { openOilSaleReceipt, openOilSaleClientReceipt } from '@/lib/oil-sale-receipt';
 import { useSeasonReadOnly } from '@/hooks/use-season-read-only';
+import { useDirectPrint } from '@/hooks/use-direct-print';
+import { oilSaleClientReceiptRequest } from '@/lib/print-documents';
 
 type SaleDetail = {
   id: string;
@@ -38,13 +41,16 @@ type SaleDetail = {
   saleTime: string;
   createdAt: string;
   notes?: string | null;
-  customer: { id: string; name: string; phone?: string | null };
+  customer: { id: string; name: string; phone?: string | null } | null;
   createdBy?: { username: string; firstName?: string | null; lastName?: string | null };
   items?: Array<{
     kind: 'CONTAINER' | 'LOOSE' | 'CONTAINER_ONLY';
+    oilType?: string | null;
     containerName?: string | null;
     containerCount?: number | null;
     quantityL: string | number;
+    unitPrice: string | number;
+    containerPrice?: string | number | null;
     lineGross: string | number;
   }>;
   paymentAllocations?: Array<{
@@ -100,6 +106,7 @@ export default function SaleDetailPage({
   });
 
   const status = axios.isAxiosError(q.error) ? q.error.response?.status : undefined;
+  const { print: directPrint, busy: printing, settings: printSettings } = useDirectPrint();
 
   if (q.isLoading) {
     return <p className="text-sm text-[var(--app-text-dim)]">جاري التحميل...</p>;
@@ -130,6 +137,8 @@ export default function SaleDetailPage({
   const s = q.data;
   const src = s.oilSource ? oilSourceMeta(s.oilSource) : null;
   const m = s.oilType ? oilMeta(s.oilType) : null;
+  const mixedOils =
+    new Set((s.items ?? []).filter((i) => i.oilType).map((i) => i.oilType)).size > 1;
   const operator =
     [s.createdBy?.firstName, s.createdBy?.lastName].filter(Boolean).join(' ') ||
     s.createdBy?.username ||
@@ -154,9 +163,27 @@ export default function SaleDetailPage({
         </div>
         {canOpenReceipt ? (
           <div className="flex flex-wrap gap-2">
+            {printSettings.directPrinting ? (
+              <Button
+                type="button"
+                className="gap-2"
+                loading={printing}
+                onClick={() =>
+                  void directPrint(oilSaleClientReceiptRequest(s.id, { isReprint: true }), {
+                    browserFallback: () => openOilSaleClientReceipt(s.id, { autoPrint: true }),
+                  })
+                }
+              >
+                <Printer className="h-4 w-4" />
+                إعادة الطباعة · Réimprimer
+              </Button>
+            ) : null}
             <Button
               type="button"
-              className="gap-2 bg-amber-700 hover:bg-amber-800"
+              variant={printSettings.directPrinting ? 'outline' : 'primary'}
+              className={
+                printSettings.directPrinting ? 'gap-2' : 'gap-2 bg-amber-700 hover:bg-amber-800'
+              }
               onClick={() => openOilSaleClientReceipt(s.id)}
             >
               <Printer className="h-4 w-4" />
@@ -178,8 +205,8 @@ export default function SaleDetailPage({
       <div className="space-y-3 rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface)] p-5 text-sm">
         <p>
           <span className="text-[var(--app-text-dim)]">الزبون: </span>
-          <strong>{s.customer.name}</strong>
-          {s.customer.id ? (
+          <strong>{saleCustomerName(s.customer)}</strong>
+          {s.customer?.id ? (
             <>
               {' · '}
               <Link href={`/sales/debts/${s.customer.id}`} className="text-amber-800 underline">
@@ -194,7 +221,12 @@ export default function SaleDetailPage({
             {src.label}
           </p>
         ) : null}
-        {m ? (
+        {mixedOils ? (
+          <p>
+            <span className="text-[var(--app-text-dim)]">النوع: </span>
+            عدة أنواع زيت
+          </p>
+        ) : m ? (
           <p>
             <span className="text-[var(--app-text-dim)]">النوع: </span>
             {m.emoji} {m.label}
@@ -214,11 +246,13 @@ export default function SaleDetailPage({
             {s.items!.map((item, i) => (
               <li key={i} className="flex justify-between px-3 py-2">
                 <span>
-                  {item.kind === 'CONTAINER'
-                    ? `${item.containerCount} × ${item.containerName} (زيت)`
-                    : item.kind === 'CONTAINER_ONLY'
-                      ? `${item.containerCount} × ${item.containerName} (منتج)`
-                      : `${formatNumber(Number(item.quantityL), 1)} لتر`}
+                  {item.kind === 'CONTAINER_ONLY'
+                    ? `${item.containerCount} × ${item.containerName} (منتج) × ${formatMoney(Number(item.containerPrice ?? item.unitPrice))} د.ج`
+                    : `${item.oilType ? `${oilMeta(item.oilType).shortLabel} · ` : ''}${
+                        item.kind === 'CONTAINER'
+                          ? `${item.containerCount} × ${item.containerName} = `
+                          : ''
+                      }${formatNumber(Number(item.quantityL), 1)} لتر × ${formatMoney(Number(item.unitPrice))} د.ج`}
                 </span>
                 <span className="tabular-nums">{formatMoney(Number(item.lineGross))} د.ج</span>
               </li>

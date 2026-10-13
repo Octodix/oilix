@@ -10,6 +10,9 @@ export type OilDebtPaymentReceiptPayload = {
     cashRegisterCode?: string | null;
     cashRegisterName?: string | null;
     deviceCode?: string | null;
+    deviceName?: string | null;
+    userName?: string | null;
+    userUsername?: string | null;
     user?: { username: string; firstName?: string | null; lastName?: string | null };
   };
   customer: { name: string; phone?: string | null };
@@ -33,9 +36,12 @@ export function OilDebtPaymentReceiptDocument({
 }) {
   const { payment, customer, settings, previousDebt, remainingDebt } = data;
   const operator =
+    payment.userName ||
+    payment.userUsername ||
     [payment.user?.firstName, payment.user?.lastName].filter(Boolean).join(' ') ||
     payment.user?.username ||
     '—';
+  const deviceLabel = payment.deviceName || payment.deviceCode || null;
 
   return (
     <div className="thermal-receipt mx-auto w-[80mm] bg-white px-2 py-3 text-black" dir="rtl">
@@ -69,7 +75,7 @@ export function OilDebtPaymentReceiptDocument({
             value={payment.cashRegisterName || payment.cashRegisterCode || ''}
           />
         ) : null}
-        {payment.deviceCode ? <Row label="الجهاز" value={payment.deviceCode} /> : null}
+        {deviceLabel ? <Row label="الجهاز" value={deviceLabel} /> : null}
         <Row label="المشغّل" value={operator} />
       </div>
 

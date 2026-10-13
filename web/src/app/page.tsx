@@ -1,20 +1,76 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Droplets, Factory, Leaf } from 'lucide-react';
+import { Droplets, Factory, Leaf, UsersRound } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { FullscreenToggle } from '@/components/layout/fullscreen-toggle';
 import { ThemeToggle } from '@/components/theme/theme-toggle';
 import { useAuthStore } from '@/lib/auth-store';
 import { canAccessWorkspace } from '@/lib/permission-catalog';
-import { useWorkspaceStore, workspaceHome, workspaceLoginPath } from '@/lib/workspace-store';
+import {
+  WORKSPACE_IDS,
+  useWorkspaceStore,
+  workspaceHome,
+  workspaceLoginPath,
+  type WorkspaceId,
+} from '@/lib/workspace-store';
+
+const CARDS: Record<
+  WorkspaceId,
+  { title: string; fr: string; desc: string; icon: LucideIcon; iconClass: string; hover: string }
+> = {
+  mill: {
+    title: 'المعصرة',
+    fr: "Gestion de l'huilerie",
+    desc: 'استقبال الزيتون، التصفية، المالية',
+    icon: Factory,
+    iconClass: 'text-emerald-700',
+    hover: 'hover:border-emerald-600',
+  },
+  sales: {
+    title: 'بيع الزيت',
+    fr: "Vente d'huile",
+    desc: 'نقطة البيع، المخزون، الزبائن، التقارير',
+    icon: Droplets,
+    iconClass: 'text-amber-700',
+    hover: 'hover:border-amber-600',
+  },
+  hr: {
+    title: 'الموارد البشرية',
+    fr: 'Ressources Humaines',
+    desc: 'العمال، الحضور بالبصمة، العطل، الأجور',
+    icon: UsersRound,
+    iconClass: 'text-sky-700',
+    hover: 'hover:border-sky-600',
+  },
+};
 
 export default function WorkspaceSelectPage() {
   const router = useRouter();
   const token = useAuthStore((s) => s.token);
   const user = useAuthStore((s) => s.user);
   const setWorkspace = useWorkspaceStore((s) => s.setWorkspace);
+  const loggedIn = Boolean(token && user);
 
-  function choose(id: 'mill' | 'sales') {
+  const accessible = loggedIn
+    ? WORKSPACE_IDS.filter((w) => canAccessWorkspace(user?.permissions, w, user?.role))
+    : WORKSPACE_IDS;
+
+  useEffect(() => {
+    if (!loggedIn || !user) return;
+    const allowed = WORKSPACE_IDS.filter((w) => canAccessWorkspace(user.permissions, w, user.role));
+    if (allowed.length === 0) {
+      router.replace('/access-denied?workspace=none');
+      return;
+    }
+    if (allowed.length === 1) {
+      setWorkspace(allowed[0]);
+      router.replace(workspaceHome(allowed[0]));
+    }
+  }, [loggedIn, user, router, setWorkspace]);
+
+  function choose(id: WorkspaceId) {
     setWorkspace(id);
     if (token && user) {
       if (!canAccessWorkspace(user.permissions, id, user.role)) {
@@ -26,6 +82,16 @@ export default function WorkspaceSelectPage() {
     }
     router.push(workspaceLoginPath(id));
   }
+
+  if (loggedIn && accessible.length <= 1) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[var(--app-bg)] text-[var(--app-text-dim)]">
+        جاري التوجيه...
+      </div>
+    );
+  }
+
+  const cols = accessible.length >= 3 ? 'md:grid-cols-3' : 'md:grid-cols-2';
 
   return (
     <div className="relative flex min-h-screen flex-col items-center justify-center bg-[var(--app-bg)] px-4">
@@ -42,32 +108,24 @@ export default function WorkspaceSelectPage() {
         <p className="mt-2 text-[var(--app-text-dim)]">اختر مساحة العمل</p>
       </div>
 
-      <div className="grid w-full max-w-3xl gap-4 md:grid-cols-2">
-        <button
-          type="button"
-          onClick={() => choose('mill')}
-          className="rounded-3xl border border-[var(--app-border)] bg-[var(--app-surface)] p-8 text-right shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-600 hover:shadow-lg"
-        >
-          <Factory className="mb-4 h-10 w-10 text-emerald-700" />
-          <h2 className="text-2xl font-black">المعصرة</h2>
-          <p className="mt-1 text-sm text-[var(--app-text-dim)]">Gestion de l&apos;huilerie</p>
-          <p className="mt-3 text-sm text-[var(--app-text-muted)]">
-            استقبال الزيتون، التصفية، المالية
-          </p>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => choose('sales')}
-          className="rounded-3xl border border-[var(--app-border)] bg-[var(--app-surface)] p-8 text-right shadow-sm transition hover:-translate-y-0.5 hover:border-amber-600 hover:shadow-lg"
-        >
-          <Droplets className="mb-4 h-10 w-10 text-amber-700" />
-          <h2 className="text-2xl font-black">بيع الزيت</h2>
-          <p className="mt-1 text-sm text-[var(--app-text-dim)]">Vente d&apos;huile</p>
-          <p className="mt-3 text-sm text-[var(--app-text-muted)]">
-            نقطة البيع، المخزون، الزبائن، التقارير
-          </p>
-        </button>
+      <div className={`grid w-full gap-4 ${accessible.length >= 3 ? 'max-w-5xl' : 'max-w-3xl'} ${cols}`}>
+        {accessible.map((id) => {
+          const c = CARDS[id];
+          const Icon = c.icon;
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => choose(id)}
+              className={`rounded-3xl border border-[var(--app-border)] bg-[var(--app-surface)] p-8 text-right shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg ${c.hover}`}
+            >
+              <Icon className={`mb-4 h-10 w-10 ${c.iconClass}`} />
+              <h2 className="text-2xl font-black">{c.title}</h2>
+              <p className="mt-1 text-sm text-[var(--app-text-dim)]">{c.fr}</p>
+              <p className="mt-3 text-sm text-[var(--app-text-muted)]">{c.desc}</p>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 import { formatMoney, formatNumber } from '@/lib/utils';
 import { oilMeta, oilSourceMeta } from '@/lib/sales-nav';
 import type { OilSaleReceiptPayload } from '@/components/print/oil-sale-receipt-document';
+import { saleCustomerName } from '@/lib/sales-cart';
 
 const DAYS_FR = ['dim', 'lun', 'mar', 'mer', 'jeu', 'ven', 'sam'] as const;
 
@@ -23,7 +24,7 @@ function formatClientReceiptDateTime(saleDate: string, saleTime: string) {
 
   const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(timeRaw);
   if (m) {
-    let h = Number(m[1]);
+    const h = Number(m[1]);
     const min = m[2];
     const sec = m[3] ?? '00';
     const ampm = h >= 12 ? 'PM' : 'AM';
@@ -77,6 +78,14 @@ export function OilSaleClientReceiptDocument({ data }: { data: OilSaleReceiptPay
     sale.status === 'COMPLETED' &&
     (sale.paymentStatus === 'PAID' || remaining <= 0);
   const isCancelled = sale.status === 'CANCELLED';
+  const cashRegisterLabel = sale.cashRegisterName || sale.cashRegisterCode || null;
+  const userLabel =
+    sale.createdByName ||
+    sale.createdByUsername ||
+    [sale.createdBy?.firstName, sale.createdBy?.lastName].filter(Boolean).join(' ') ||
+    sale.createdBy?.username ||
+    null;
+  const deviceLabel = sale.deviceName || sale.deviceCode || null;
 
   const lines =
     sale.items && sale.items.length > 0
@@ -93,6 +102,8 @@ export function OilSaleClientReceiptDocument({ data }: { data: OilSaleReceiptPay
             },
           ]
         : [];
+  const singleSource =
+    new Set(lines.filter((l) => l.kind !== 'CONTAINER_ONLY').map((l) => l.oilSource)).size <= 1;
 
   return (
     <div
@@ -109,14 +120,32 @@ export function OilSaleClientReceiptDocument({ data }: { data: OilSaleReceiptPay
       </div>
 
       <div className="mt-3 space-y-0.5 text-center">
-        <p className="text-[13px] font-black leading-tight">{sale.customer.name}</p>
+        <p className="text-[13px] font-black leading-tight">{saleCustomerName(sale.customer)}</p>
         <p className="font-mono text-[11px] font-bold tracking-wide">
           {receiptRef(sale.receiptNumber)}
         </p>
         <p className="text-[10px] tabular-nums">
           {formatClientReceiptDateTime(sale.saleDate, sale.saleTime)}
         </p>
-        {sale.oilSource ? (
+        {cashRegisterLabel ? (
+          <p className="text-[10px]">
+            <span className="opacity-70">الصندوق:</span>{' '}
+            <span className="font-bold">{cashRegisterLabel}</span>
+          </p>
+        ) : null}
+        {userLabel ? (
+          <p className="text-[10px]">
+            <span className="opacity-70">المستخدم:</span>{' '}
+            <span className="font-bold">{userLabel}</span>
+          </p>
+        ) : null}
+        {deviceLabel ? (
+          <p className="text-[10px]">
+            <span className="opacity-70">الجهاز:</span>{' '}
+            <span className="font-bold">{deviceLabel}</span>
+          </p>
+        ) : null}
+        {sale.oilSource && singleSource ? (
           <p className="text-[10px] opacity-80">{oilSourceMeta(sale.oilSource).label}</p>
         ) : null}
       </div>
@@ -140,6 +169,7 @@ export function OilSaleClientReceiptDocument({ data }: { data: OilSaleReceiptPay
               <th className="oil-client-receipt-th">التعيين</th>
               <th className="oil-client-receipt-th">الكمية</th>
               <th className="oil-client-receipt-th">س. وحدة</th>
+              <th className="oil-client-receipt-th">المبلغ</th>
             </tr>
           </thead>
           <tbody>
@@ -149,11 +179,14 @@ export function OilSaleClientReceiptDocument({ data }: { data: OilSaleReceiptPay
                 <td className="oil-client-receipt-td font-bold">{itemDesignation(item)}</td>
                 <td className="oil-client-receipt-td tabular-nums">{itemQty(item)}</td>
                 <td className="oil-client-receipt-td tabular-nums">{itemUnitPrice(item)}</td>
+                <td className="oil-client-receipt-td tabular-nums">
+                  {formatMoney(Number(item.lineGross))}
+                </td>
               </tr>
             ))}
             {lines.length === 0 ? (
               <tr>
-                <td className="oil-client-receipt-td" colSpan={4}>
+                <td className="oil-client-receipt-td" colSpan={5}>
                   —
                 </td>
               </tr>

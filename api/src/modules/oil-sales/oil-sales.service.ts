@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -24,7 +25,7 @@ import { RealtimeService } from '../realtime/realtime.service';
 import { REALTIME_ENTITIES } from '../realtime/realtime.constants';
 import { CashRegisterService } from './cash-register.service';
 import { OilSalesDebtService } from './oil-sales-debt.service';
-import { computeSalePaymentFields } from './oil-sales-debt.math';
+import { computeSalePaymentFields, saleDebtViolation } from './oil-sales-debt.math';
 import { currentDevice } from '../devices/device-context';
 import type { OilDashboardQueryDto } from '../devices/dto/devices.dto';
 import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
@@ -34,7 +35,9 @@ import {
   computeStockSummary,
   computeContainerStockSummary,
   reconcileInventoryCount,
+  roundMoney,
   SALE_CALC_ERROR_AR,
+  splitSaleByOil,
   type SaleLineInput,
 } from './oil-sales.math';
 import {
@@ -55,12 +58,18 @@ import {
   OilReportQueryDto,
   OilSaleQueryDto,
   PreviewSaleDto,
+  SaveOilSaleHoldDto,
   StockAdjustmentDto,
   UpdateOilContainerDto,
   UpdateOilCustomerDto,
   UpdateOilSalesSettingsDto,
 } from './dto/oil-sales.dto';
 import { hasPermission } from '../../common/permissions/permission-catalog';
+import {
+  applyAuthoritativePrices,
+  parsePriceLocks,
+  type PriceLocks,
+} from './oil-sale-pricing';
 
 import {
   allOilBuckets,
@@ -68,7 +77,7 @@ import {
   OIL_TYPES,
   oilBucketKey,
   parseOilBucketKey,
-  priceForOilType,
+  sumOilByBucket,
   OIL_SOURCE_LABELS,
   OIL_TYPE_LABELS,
 } from './oil-catalog';
@@ -94,6 +103,19 @@ function num(n: number | string | Prisma.Decimal | null | undefined): number {
 function nowTime(): string {
   const d = new Date();
   return d.toTimeString().slice(0, 8);
+}
+
+/** Matches any sale containing the oil — the header only records the first oil line. */
+function saleOilFilter(query: {
+  oilSource?: OilSource;
+  oilType?: OilType;
+}): Prisma.OilSaleWhereInput | null {
+  if (!query.oilSource && !query.oilType) return null;
+  const match = {
+    ...(query.oilSource ? { oilSource: query.oilSource } : {}),
+    ...(query.oilType ? { oilType: query.oilType } : {}),
+  };
+  return { OR: [match, { items: { some: match } }] };
 }
 
 function mapCalcError(err: unknown): never {
@@ -1036,7 +1058,7 @@ export class OilSalesService {
         capacityL: cap,
         containerCount: it.containerCount,
         quantityL: it.quantityL,
-        unitPrice: it.unitPrice,
+        unitPrice: it.unitPrice ?? 0,
         pricingMode: it.pricingMode,
         containerPrice: it.containerPrice,
       };
@@ -1054,6 +1076,293 @@ export class OilSalesService {
     return { next: (last?.receiptNumber ?? 0) + 1, seasonId };
   }
 
+  /**
+   * Prices every line independently from configuration (or hold locks).
+   * Client prices are compared only — a mismatch is rejected with 409 PRICE_CHANGED.
+   */
+  private async priceSaleLines(
+    rawItems: CreateOilSaleItemDto[],
+    fallback: { oilSource?: OilSource; oilType?: OilType },
+    assistance: {
+      assistanceFixed?: number;
+      assistancePercent?: number;
+      assistancePerLitre?: number;
+    },
+    locks: PriceLocks | null,
+  ) {
+    const containerIds = [
+      ...new Set(
+        rawItems
+          .filter((i) => i.kind !== 'LOOSE' && i.containerId)
+          .map((i) => i.containerId!),
+      ),
+    ];
+    const containers = containerIds.length
+      ? await this.prisma.oilContainer.findMany({
+          where: { id: { in: containerIds }, deletedAt: null, isActive: true },
+        })
+      : [];
+    const settings = await this.getSettings();
+
+    const lines = rawItems.map((it) => {
+      const pack =
+        it.kind === 'CONTAINER' || it.kind === 'CONTAINER_ONLY'
+          ? containers.find((c) => c.id === it.containerId)
+          : undefined;
+      if ((it.kind === 'CONTAINER' || it.kind === 'CONTAINER_ONLY') && !pack) {
+        throw new BadRequestException('التعبئة غير موجودة أو غير نشطة');
+      }
+      const oilSource =
+        it.kind === 'CONTAINER_ONLY' ? null : (it.oilSource ?? fallback.oilSource ?? null);
+      const oilType =
+        it.kind === 'CONTAINER_ONLY' ? null : (it.oilType ?? fallback.oilType ?? null);
+      if (it.kind !== 'CONTAINER_ONLY' && (!oilSource || !oilType)) {
+        throw new BadRequestException('حدد مصدر ونوع الزيت لسطر البيع');
+      }
+      return { it, pack, oilSource, oilType };
+    });
+
+    let priced;
+    try {
+      priced = applyAuthoritativePrices(
+        lines.map(({ it, pack, oilType }) => ({
+          kind: it.kind,
+          oilType,
+          containerId: pack?.id ?? null,
+          capacityL: pack ? num(pack.capacityL) : undefined,
+          containerCount: it.containerCount,
+          quantityL: it.quantityL,
+          unitPrice: it.unitPrice,
+          containerPrice: it.containerPrice,
+        })),
+        settings,
+        containers.map((c) => ({
+          id: c.id,
+          unitPrice: c.unitPrice == null ? null : num(c.unitPrice),
+        })),
+        locks,
+      );
+    } catch (e) {
+      mapCalcError(e);
+    }
+
+    if (priced.mismatches.length) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'PRICE_CHANGED',
+        message:
+          'سعر البيع المعروض لا يطابق السعر المعتمد في إعدادات المنتجات — تم تحديث الأسعار، راجع المجموع ثم أعد المحاولة',
+        mismatches: priced.mismatches,
+      });
+    }
+
+    let amounts;
+    try {
+      amounts = computeSaleFromLines(priced.lines, assistance);
+    } catch (e) {
+      mapCalcError(e);
+    }
+
+    const prepared = lines.map((l, idx) => {
+      const p = priced.lines[idx];
+      const r = amounts.lines[idx];
+      const emptyOnly = l.it.kind === 'CONTAINER_ONLY';
+      return {
+        idx,
+        priceKey: p.key,
+        it: {
+          ...l.it,
+          unitPrice: p.unitPrice,
+          containerPrice: emptyOnly ? p.containerPrice : undefined,
+          pricingMode: emptyOnly ? undefined : ('PER_LITRE' as const),
+        },
+        pack: l.pack,
+        oilSource: l.oilSource,
+        oilType: l.oilType,
+        quantityL: r.quantityL,
+        lineGross: r.lineGross,
+        containerCount: r.containerCount,
+      };
+    });
+    return { prepared, amounts };
+  }
+
+  // ─── Held sales (قائمة الانتظار) ───────────────────────────
+  // Drafts only: no stock movement, no cash, no ledger until finalized via createSale.
+
+  private holdScope(user: JwtPayload): Prisma.OilSaleHoldWhereInput {
+    const device = currentDevice();
+    if (device?.cashRegisterId) return { cashRegisterId: device.cashRegisterId };
+    return { createdById: user.sub };
+  }
+
+  private serializeHold(row: Prisma.OilSaleHoldGetPayload<object>) {
+    return {
+      id: row.id,
+      holdNumber: row.holdNumber,
+      customerId: row.customerId,
+      customerName: row.customerName,
+      customerPhone: row.customerPhone,
+      payload: row.payload,
+      priceLocks: parsePriceLocks(row.priceLocks),
+      itemCount: row.itemCount,
+      totalAmount: num(row.totalAmount),
+      createdById: row.createdById,
+      createdByName: row.createdByName,
+      deviceName: row.deviceName,
+      cashRegisterName: row.cashRegisterName,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  async listHolds(user: JwtPayload) {
+    const seasonId = await this.seasonScope.getSeasonId();
+    const rows = await this.prisma.oilSaleHold.findMany({
+      where: { seasonId, ...this.holdScope(user) },
+      orderBy: { createdAt: 'asc' },
+      take: 100,
+    });
+    return rows.map((r) => this.serializeHold(r));
+  }
+
+  async saveHold(dto: SaveOilSaleHoldDto, user: JwtPayload, holdId?: string) {
+    const seasonId = await this.seasonScope.getSeasonId();
+    const permissions = user.permissions ?? [];
+    const role = user.role;
+    if (dto.items.some((i) => i.kind !== 'CONTAINER_ONLY') &&
+      !hasPermission(permissions, 'OIL_SALES_SALES_CREATE', role)) {
+      throw new ForbiddenException('ليس لديك صلاحية بيع الزيت');
+    }
+    if (dto.items.some((i) => i.kind === 'CONTAINER_ONLY') &&
+      !hasPermission(permissions, 'OIL_SALES_CONTAINERS_SELL', role)) {
+      throw new ForbiddenException('ليس لديك صلاحية بيع الضلف فارغة');
+    }
+    const assistanceFixed = hasPermission(permissions, 'OIL_SALES_ASSISTANCE_FIXED', role)
+      ? Number(dto.assistanceFixed ?? 0)
+      : 0;
+    const assistancePerLitre = hasPermission(permissions, 'OIL_SALES_ASSISTANCE_PER_LITRE', role)
+      ? Number(dto.assistancePerLitre ?? 0)
+      : 0;
+
+    const customer = dto.customerId
+      ? await this.prisma.oilSaleCustomer.findFirst({
+          where: { id: dto.customerId, seasonId, deletedAt: null },
+        })
+      : null;
+    if (dto.customerId && !customer) throw new NotFoundException('الزبون غير موجود');
+
+    const existing = holdId
+      ? await this.prisma.oilSaleHold.findFirst({
+          where: { id: holdId, seasonId, ...this.holdScope(user) },
+        })
+      : null;
+    if (holdId && !existing) {
+      throw new NotFoundException('البيع المعلّق غير موجود — ربما تم إتمامه أو حذفه');
+    }
+    const existingLocks = existing ? parsePriceLocks(existing.priceLocks) : null;
+
+    // Prices are captured server-side; the client's displayed prices are not trusted here.
+    const { prepared, amounts } = await this.priceSaleLines(
+      dto.items.map((it) => ({ ...it, unitPrice: undefined, containerPrice: undefined })),
+      {},
+      { assistanceFixed, assistancePerLitre },
+      existingLocks,
+    );
+
+    const priceLocks: PriceLocks = { ...(existingLocks ?? {}) };
+    for (const p of prepared) {
+      priceLocks[p.priceKey] = p.it.containerPrice ?? p.it.unitPrice;
+    }
+
+    const payload = {
+      items: prepared.map((p) => ({
+        kind: p.it.kind,
+        oilSource: p.oilSource,
+        oilType: p.oilType,
+        containerId: p.pack?.id ?? null,
+        containerName: p.pack?.name ?? null,
+        capacityL: p.pack ? num(p.pack.capacityL) : null,
+        containerCount: p.containerCount,
+        quantityL: p.quantityL,
+        unitPrice: p.it.unitPrice,
+        containerPrice: p.it.containerPrice ?? null,
+        lineGross: p.lineGross,
+      })),
+      assistanceFixed: amounts.assistanceFixed,
+      assistancePerLitre: amounts.assistancePerLitre,
+      notes: dto.notes?.trim() || null,
+    };
+
+    const device = currentDevice();
+    const register = device?.cashRegisterId
+      ? await this.prisma.cashRegister.findUnique({ where: { id: device.cashRegisterId } })
+      : null;
+    const operator = await this.prisma.user.findUnique({
+      where: { id: user.sub },
+      select: this.userSelect,
+    });
+    const operatorName =
+      [operator?.firstName, operator?.lastName].filter(Boolean).join(' ').trim() ||
+      operator?.username ||
+      null;
+
+    const common = {
+      customerId: customer?.id ?? null,
+      customerName: customer?.name ?? null,
+      customerPhone: customer?.phone ?? null,
+      payload: payload as unknown as Prisma.InputJsonValue,
+      priceLocks: priceLocks as Prisma.InputJsonValue,
+      itemCount: prepared.length,
+      totalAmount: dec(amounts.finalAmount),
+    };
+
+    const row = existing
+      ? await this.prisma.oilSaleHold.update({ where: { id: existing.id }, data: common })
+      : await this.prisma.$transaction(async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`oil-hold:${seasonId}`}))`;
+          const last = await tx.oilSaleHold.findFirst({
+            where: { seasonId },
+            orderBy: { holdNumber: 'desc' },
+            select: { holdNumber: true },
+          });
+          return tx.oilSaleHold.create({
+            data: {
+              ...common,
+              seasonId,
+              holdNumber: (last?.holdNumber ?? 0) + 1,
+              createdById: user.sub,
+              createdByName: operatorName,
+              deviceId: device?.id ?? null,
+              deviceName: device?.name ?? device?.code ?? null,
+              cashRegisterId: register?.id ?? null,
+              cashRegisterName: register?.name ?? null,
+            },
+          });
+        });
+
+    return this.serializeHold(row);
+  }
+
+  async deleteHold(id: string, user: JwtPayload) {
+    const seasonId = await this.seasonScope.getSeasonId();
+    const existing = await this.prisma.oilSaleHold.findFirst({
+      where: { id, seasonId, ...this.holdScope(user) },
+    });
+    if (!existing) throw new NotFoundException('البيع المعلّق غير موجود');
+    await this.prisma.oilSaleHold.deleteMany({ where: { id } });
+    await this.audit.log({
+      userId: user.sub,
+      action: AUDIT_ACTIONS.DELETE,
+      module: AUDIT_MODULES.OIL_SALES,
+      entity: 'OilSaleHold',
+      entityId: id,
+      description: `حذف بيع معلّق #${existing.holdNumber}`,
+      oldData: existing as unknown as Prisma.InputJsonValue,
+    });
+    return { ok: true };
+  }
+
   async createSale(
     dto: CreateOilSaleDto,
     userId: string,
@@ -1062,10 +1371,20 @@ export class OilSalesService {
     role?: string,
   ) {
     const seasonId = await this.seasonScope.getSeasonId();
-    const customer = await this.prisma.oilSaleCustomer.findFirst({
-      where: { id: dto.customerId, seasonId, deletedAt: null },
-    });
-    if (!customer) throw new NotFoundException('الزبون غير موجود');
+    const customerId = dto.customerId || null;
+    if (customerId) {
+      const customer = await this.prisma.oilSaleCustomer.findFirst({
+        where: { id: customerId, seasonId, deletedAt: null },
+      });
+      if (!customer) throw new NotFoundException('الزبون غير موجود');
+    }
+
+    const hold = dto.holdId
+      ? await this.prisma.oilSaleHold.findFirst({ where: { id: dto.holdId, seasonId } })
+      : null;
+    if (dto.holdId && !hold) {
+      throw new BadRequestException('البيع المعلّق غير موجود — ربما تم إتمامه أو حذفه');
+    }
 
     const assistFixed = Number(dto.assistanceFixed ?? 0);
     const assistPct = Number(dto.assistancePercent ?? 0);
@@ -1101,12 +1420,6 @@ export class OilSalesService {
       throw new ForbiddenException('ليس لديك صلاحية تجاوز مخزون الضلف');
     }
 
-    const settings = await this.getSettings();
-    const canChangeOilPrice =
-      isAdmin || hasPermission(permissions, 'OIL_SALES_SALES_CHANGE_PRICE', role);
-    const canChangeContainerPrice =
-      isAdmin || hasPermission(permissions, 'OIL_SALES_CONTAINERS_CHANGE_PRICE', role);
-
     const rawItems: CreateOilSaleItemDto[] =
       dto.items?.length
         ? dto.items
@@ -1116,7 +1429,7 @@ export class OilSalesService {
               oilSource: dto.oilSource,
               oilType: dto.oilType,
               quantityL: dto.quantityL,
-              unitPrice: dto.unitPrice ?? 0,
+              unitPrice: dto.unitPrice,
             },
           ];
 
@@ -1129,107 +1442,16 @@ export class OilSalesService {
       throw new ForbiddenException('ليس لديك صلاحية بيع الضلف فارغة');
     }
 
-    const containerIds = [
-      ...new Set(
-        rawItems
-          .filter((i) => i.kind !== 'LOOSE' && i.containerId)
-          .map((i) => i.containerId!),
-      ),
-    ];
-    const containers = containerIds.length
-      ? await this.prisma.oilContainer.findMany({
-          where: { id: { in: containerIds }, deletedAt: null, isActive: true },
-        })
-      : [];
-
-    const prepared = rawItems.map((it, idx) => {
-      const pack =
-        it.kind === 'CONTAINER' || it.kind === 'CONTAINER_ONLY'
-          ? containers.find((c) => c.id === it.containerId)
-          : undefined;
-      if ((it.kind === 'CONTAINER' || it.kind === 'CONTAINER_ONLY') && !pack) {
-        throw new BadRequestException('التعبئة غير موجودة أو غير نشطة');
-      }
-
-      const lineOilSource =
-        it.kind === 'CONTAINER_ONLY'
-          ? null
-          : (it.oilSource ?? dto.oilSource ?? null);
-      const lineOilType =
-        it.kind === 'CONTAINER_ONLY' ? null : (it.oilType ?? dto.oilType ?? null);
-      if (it.kind !== 'CONTAINER_ONLY' && (!lineOilSource || !lineOilType)) {
-        throw new BadRequestException('حدد مصدر ونوع الزيت لسطر البيع');
-      }
-
-      let unitPrice = Number(it.unitPrice);
-      let containerPrice = it.containerPrice;
-      if (it.kind === 'CONTAINER_ONLY') {
-        const catalog = pack?.unitPrice == null ? null : num(pack.unitPrice);
-        if (!canChangeContainerPrice) {
-          if (catalog == null) {
-            throw new ForbiddenException('لا يوجد سعر بيع للضلف — يحتاج صلاحية تحديد السعر');
-          }
-          unitPrice = catalog;
-          containerPrice = catalog;
-        } else if (containerPrice == null && catalog != null) {
-          containerPrice = catalog;
-        }
-      } else {
-        const catalogPrice = lineOilType
-          ? priceForOilType(settings, lineOilType)
-          : 0;
-        if (!canChangeOilPrice) unitPrice = catalogPrice;
-      }
-
-      const lineIn: SaleLineInput = {
-        kind: it.kind,
-        capacityL: pack ? num(pack.capacityL) : undefined,
-        containerCount: it.containerCount,
-        quantityL: it.quantityL,
-        unitPrice,
-        pricingMode: it.pricingMode,
-        containerPrice,
-      };
-      let resolved;
-      try {
-        resolved = computeSaleFromLines([lineIn], { assistanceFixed: 0, assistancePercent: 0 });
-      } catch (e) {
-        mapCalcError(e);
-      }
-      const line = resolved.lines[0];
-      return {
-        idx,
-        it: { ...it, unitPrice, containerPrice },
-        pack,
-        oilSource: lineOilSource,
-        oilType: lineOilType,
-        quantityL: line.quantityL,
-        lineGross: line.lineGross,
-        containerCount: line.containerCount,
-      };
-    });
-
-    let amounts;
-    try {
-      amounts = computeSaleFromLines(
-        prepared.map((p) => ({
-          kind: p.it.kind,
-          capacityL: p.pack ? num(p.pack.capacityL) : undefined,
-          containerCount: p.it.containerCount,
-          quantityL: p.it.quantityL,
-          unitPrice: p.it.unitPrice,
-          pricingMode: p.it.pricingMode,
-          containerPrice: p.it.containerPrice,
-        })),
-        {
-          assistanceFixed: assistFixed,
-          assistancePercent: assistPct,
-          assistancePerLitre: assistPerLitre,
-        },
-      );
-    } catch (e) {
-      mapCalcError(e);
-    }
+    const { prepared, amounts } = await this.priceSaleLines(
+      rawItems,
+      { oilSource: dto.oilSource, oilType: dto.oilType },
+      {
+        assistanceFixed: assistFixed,
+        assistancePercent: assistPct,
+        assistancePerLitre: assistPerLitre,
+      },
+      hold ? parsePriceLocks(hold.priceLocks) : null,
+    );
 
     const qty = amounts.quantityL;
     const avgUnit = qty > 0 ? amounts.grossAmount / qty : 0;
@@ -1253,22 +1475,21 @@ export class OilSalesService {
       throw new BadRequestException('مبلغ الدفع غير صالح');
     }
 
-    if (paymentFields.remainingAmount > 0) {
-      if (!hasPermission(permissions, 'OIL_SALES_SALES_ALLOW_DEBT', role)) {
-        throw new ForbiddenException('ليس لديك صلاحية البيع بالدين');
-      }
-      if (!dto.customerId) {
-        throw new BadRequestException('البيع بالدين يتطلب اختيار زبون مسجّل');
-      }
+    const debtViolation = saleDebtViolation({
+      remainingAmount: paymentFields.remainingAmount,
+      customerId,
+      canAllowDebt: hasPermission(permissions, 'OIL_SALES_SALES_ALLOW_DEBT', role),
+    });
+    if (debtViolation === 'DEBT_NOT_ALLOWED') {
+      throw new ForbiddenException('ليس لديك صلاحية البيع بالدين');
+    }
+    if (debtViolation === 'DEBT_REQUIRES_CUSTOMER') {
+      throw new BadRequestException(
+        'البيع بالدين يتطلب اختيار زبون مسجّل — الزبون العابر يدفع كامل المبلغ',
+      );
     }
 
-    const oilByBucket = new Map<string, number>();
-    for (const p of prepared) {
-      if (p.quantityL > 0 && p.oilSource && p.oilType) {
-        const key = oilBucketKey(p.oilSource, p.oilType);
-        oilByBucket.set(key, (oilByBucket.get(key) ?? 0) + p.quantityL);
-      }
-    }
+    const oilByBucket = sumOilByBucket(prepared);
     const consumeByContainer = new Map<string, number>();
     const sellEmptyByContainer = new Map<string, number>();
     for (const p of prepared) {
@@ -1288,9 +1509,24 @@ export class OilSalesService {
 
     const device = this.cashRegisters.requireSalesDevice({ requireCashRegister: false });
     const seasonForSession = seasonId;
+    const operator = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: this.userSelect,
+    });
+    const operatorName =
+      [operator?.firstName, operator?.lastName].filter(Boolean).join(' ').trim() ||
+      operator?.username ||
+      null;
 
     const sale = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`oil-receipt:${seasonId}`}))`;
+
+      if (hold) {
+        const removed = await tx.oilSaleHold.deleteMany({ where: { id: hold.id } });
+        if (removed.count !== 1) {
+          throw new BadRequestException('تم إتمام هذا البيع المعلّق أو حذفه من جهاز آخر');
+        }
+      }
 
       const session = device.cashRegisterId
         ? await tx.cashRegisterSession.findFirst({
@@ -1358,7 +1594,7 @@ export class OilSalesService {
         data: {
           seasonId,
           receiptNumber,
-          customerId: dto.customerId,
+          customerId,
           oilSource: headerOilSource,
           oilType: headerOilType,
           quantityL: dec(qty),
@@ -1379,6 +1615,8 @@ export class OilSalesService {
           overrideContainerStock: overrideContainers,
           saleTime: nowTime(),
           createdById: userId,
+          createdByName: operatorName,
+          createdByUsername: operator?.username ?? null,
           deviceId: device.id,
           cashRegisterId: register?.id ?? null,
           cashSessionId: session?.id ?? null,
@@ -1504,17 +1742,19 @@ export class OilSalesService {
         }
       }
 
-      await this.debts.appendSaleLedger(tx, {
-        seasonId,
-        customerId: dto.customerId,
-        saleId: created.id,
-        receiptNumber,
-        netAmount: amounts.finalAmount,
-        amountPaid: paymentFields.amountPaid,
-        remainingAmount: paymentFields.remainingAmount,
-        userId,
-        deviceId: device.id,
-      });
+      if (customerId) {
+        await this.debts.appendSaleLedger(tx, {
+          seasonId,
+          customerId,
+          saleId: created.id,
+          receiptNumber,
+          netAmount: amounts.finalAmount,
+          amountPaid: paymentFields.amountPaid,
+          remainingAmount: paymentFields.remainingAmount,
+          userId,
+          deviceId: device.id,
+        });
+      }
 
       return created;
     });
@@ -1668,7 +1908,7 @@ export class OilSalesService {
 
       const refundCash = num(existing.amountPaid);
       const clearedDebt = num(existing.remainingAmount);
-      if (clearedDebt > 0 || refundCash > 0) {
+      if (existing.customerId && (clearedDebt > 0 || refundCash > 0)) {
         const balAgg = await tx.oilSale.aggregate({
           where: {
             seasonId,
@@ -1865,8 +2105,8 @@ export class OilSalesService {
       if (query.userId) where.createdById = query.userId;
     }
 
-    if (query.oilSource) where.oilSource = query.oilSource;
-    if (query.oilType) where.oilType = query.oilType;
+    const oilFilter = saleOilFilter(query);
+    if (oilFilter) where.AND = [oilFilter];
     if (query.status) where.status = query.status;
     if (query.paymentStatus) {
       where.paymentStatus = query.paymentStatus as import('@prisma/client').OilSalePaymentStatus;
@@ -1936,8 +2176,8 @@ export class OilSalesService {
       seasonId,
       status: OilSaleStatus.COMPLETED,
     };
-    if (query.oilSource) where.oilSource = query.oilSource;
-    if (query.oilType) where.oilType = query.oilType;
+    const oilFilter = saleOilFilter(query);
+    if (oilFilter) where.AND = [oilFilter];
     if (query.userId) where.createdById = query.userId;
     if (query.deviceId) where.deviceId = query.deviceId;
     if (query.cashRegisterId) where.cashRegisterId = query.cashRegisterId;
@@ -1947,7 +2187,23 @@ export class OilSalesService {
       if (query.to) where.saleDate.lte = new Date(`${query.to}T23:59:59.999`);
     }
 
-    const sales = await this.prisma.oilSale.findMany({ where });
+    const sales = await this.prisma.oilSale.findMany({ where, include: { items: true } });
+    const oilShares = sales.flatMap((s) =>
+      splitSaleByOil({
+        oilSource: s.oilSource,
+        oilType: s.oilType,
+        quantityL: num(s.quantityL),
+        grossAmount: num(s.grossAmount),
+        totalAssistance: num(s.totalAssistance),
+        assistancePerLitreTotal: num(s.assistancePerLitreTotal),
+        items: s.items.map((it) => ({
+          oilSource: it.oilSource,
+          oilType: it.oilType,
+          quantityL: num(it.quantityL),
+          lineGross: num(it.lineGross),
+        })),
+      }).map((share) => ({ ...share, saleId: s.id })),
+    );
     const summary = sales.reduce(
       (a, s) => {
         a.count += 1;
@@ -1976,38 +2232,39 @@ export class OilSalesService {
       },
     );
 
-    const saleStats = (rows: typeof sales) => ({
-      count: rows.length,
-      litres: rows.reduce((s, r) => s + num(r.quantityL), 0),
-      gross: rows.reduce((s, r) => s + num(r.grossAmount), 0),
-      assistance: rows.reduce((s, r) => s + num(r.totalAssistance), 0),
-      net: rows.reduce((s, r) => s + num(r.finalAmount), 0),
-    });
+    // Per-oil figures come from line snapshots so a mixed sale is split across its oils.
+    const saleStats = (pred: (share: (typeof oilShares)[number]) => boolean) => {
+      const rows = oilShares.filter(pred);
+      return {
+        count: new Set(rows.map((r) => r.saleId)).size,
+        litres: roundMoney(rows.reduce((s, r) => s + r.litres, 0)),
+        gross: roundMoney(rows.reduce((s, r) => s + r.gross, 0)),
+        assistance: roundMoney(rows.reduce((s, r) => s + r.assistance, 0)),
+        net: roundMoney(rows.reduce((s, r) => s + r.net, 0)),
+      };
+    };
 
     const byType = OIL_TYPES.map((t) => ({
       oilType: t,
-      ...saleStats(sales.filter((s) => s.oilType === t)),
+      ...saleStats((s) => s.oilType === t),
     }));
 
     const bySource = OIL_SOURCES.map((src) => ({
       oilSource: src,
-      ...saleStats(sales.filter((s) => s.oilSource === src)),
+      ...saleStats((s) => s.oilSource === src),
     }));
 
     const stock = await this.stockOverview();
     const containerStock = await this.containerStockOverview();
 
     const byBucket = allOilBuckets().map(({ oilSource, oilType }) => {
-      const bucketSales = sales.filter(
-        (s) => s.oilSource === oilSource && s.oilType === oilType,
-      );
       const stockRow = stock.find(
         (b) => b.oilSource === oilSource && b.oilType === oilType,
       );
       return {
         oilSource,
         oilType,
-        ...saleStats(bucketSales),
+        ...saleStats((s) => s.oilSource === oilSource && s.oilType === oilType),
         stock: stockRow ?? null,
       };
     });
@@ -2025,7 +2282,7 @@ export class OilSalesService {
         farmer: farmerStock?.theoreticalQty ?? 0,
         total:
           (storedStock?.theoreticalQty ?? 0) + (farmerStock?.theoreticalQty ?? 0),
-        ...saleStats(sales.filter((s) => s.oilType === type)),
+        ...saleStats((s) => s.oilType === type),
       };
     });
 
@@ -2126,6 +2383,7 @@ export class OilSalesService {
     };
 
     const paymentWhere: Prisma.OilSalePaymentWhereInput = { seasonId };
+    if (query.cashRegisterId) paymentWhere.cashRegisterId = query.cashRegisterId;
     if (query.from || query.to) {
       paymentWhere.createdAt = {};
       if (query.from) paymentWhere.createdAt.gte = new Date(`${query.from}T00:00:00`);
@@ -2140,6 +2398,76 @@ export class OilSalesService {
     const newDebtCreated = summary.remainingDebt;
     const cashFromSales = summary.amountPaid;
     const cashCollected = cashFromSales + debtRepayments;
+
+    let cashRegister: {
+      id: string;
+      code: string;
+      name: string;
+    } | null = null;
+    let cashSessions: Array<{
+      id: string;
+      status: string;
+      openedAt: Date;
+      closedAt: Date | null;
+      openingCash: number;
+      cashSales: number;
+      cashRefunds: number;
+      cashIn: number;
+      cashOut: number;
+      expectedCash: number | null;
+      physicalCash: number | null;
+      difference: number | null;
+      openedByName: string | null;
+      closedByName: string | null;
+    }> = [];
+
+    if (query.cashRegisterId) {
+      const reg = await this.prisma.cashRegister.findUnique({
+        where: { id: query.cashRegisterId },
+      });
+      if (reg) {
+        cashRegister = { id: reg.id, code: reg.code, name: reg.name };
+        const sessionWhere: Prisma.CashRegisterSessionWhereInput = {
+          seasonId,
+          cashRegisterId: reg.id,
+        };
+        if (query.from || query.to) {
+          sessionWhere.openedAt = {};
+          if (query.from) sessionWhere.openedAt.gte = new Date(`${query.from}T00:00:00`);
+          if (query.to) sessionWhere.openedAt.lte = new Date(`${query.to}T23:59:59.999`);
+        }
+        const sessions = await this.prisma.cashRegisterSession.findMany({
+          where: sessionWhere,
+          include: {
+            openedBy: { select: this.userSelect },
+            closedBy: { select: this.userSelect },
+          },
+          orderBy: { openedAt: 'asc' },
+        });
+        cashSessions = sessions.map((s) => ({
+          id: s.id,
+          status: s.status,
+          openedAt: s.openedAt,
+          closedAt: s.closedAt,
+          openingCash: num(s.openingCash),
+          cashSales: num(s.cashSales),
+          cashRefunds: num(s.cashRefunds),
+          cashIn: num(s.cashIn),
+          cashOut: num(s.cashOut),
+          expectedCash: s.expectedCash != null ? num(s.expectedCash) : null,
+          physicalCash: s.physicalCash != null ? num(s.physicalCash) : null,
+          difference: s.difference != null ? num(s.difference) : null,
+          openedByName:
+            [s.openedBy?.firstName, s.openedBy?.lastName].filter(Boolean).join(' ').trim() ||
+            s.openedBy?.username ||
+            null,
+          closedByName: s.closedBy
+            ? [s.closedBy.firstName, s.closedBy.lastName].filter(Boolean).join(' ').trim() ||
+              s.closedBy.username
+            : null,
+        }));
+      }
+    }
 
     const byRegisterMap = new Map<
       string,
@@ -2204,6 +2532,8 @@ export class OilSalesService {
       byUser,
       byRegister: [...byRegisterMap.values()],
       byDevice: [...byDeviceMap.values()],
+      cashRegister,
+      cashSessions,
       stock,
       containerStock,
       byContainer,
@@ -2213,6 +2543,59 @@ export class OilSalesService {
         capacityL: r.capacityL,
         usedForOil: r.usedForOil,
       })),
+    };
+  }
+
+  async recordDayReportPrint(
+    dto: { from: string; to: string; cashRegisterId: string },
+    userId: string,
+  ) {
+    const register = await this.prisma.cashRegister.findUnique({
+      where: { id: dto.cashRegisterId },
+    });
+    if (!register) throw new NotFoundException('الصندوق غير موجود');
+    const seasonId = await this.seasonScope.getSeasonId();
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: this.userSelect,
+    });
+    const generatedByName =
+      [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim() ||
+      user?.username ||
+      '—';
+    const device = currentDevice();
+    const row = await this.prisma.oilDayReportPrint.create({
+      data: {
+        seasonId,
+        fromDate: new Date(`${dto.from}T00:00:00`),
+        toDate: new Date(`${dto.to}T00:00:00`),
+        cashRegisterId: register.id,
+        cashRegisterCode: register.code,
+        cashRegisterName: register.name,
+        generatedById: userId,
+        generatedByName,
+        deviceId: device?.id ?? null,
+        deviceCode: device?.code ?? null,
+        deviceName: device?.name ?? null,
+      },
+    });
+    return {
+      id: row.id,
+      from: dto.from,
+      to: dto.to,
+      cashRegister: {
+        id: register.id,
+        code: register.code,
+        name: register.name,
+      },
+      generatedBy: {
+        id: userId,
+        name: generatedByName,
+      },
+      device: device
+        ? { id: device.id, code: device.code, name: device.name }
+        : null,
+      generatedAt: row.createdAt,
     };
   }
 

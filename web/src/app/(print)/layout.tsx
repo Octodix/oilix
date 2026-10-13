@@ -13,7 +13,8 @@ export default function PrintLayout({ children }: { children: React.ReactNode })
       pathname.startsWith('/oil-sale') ||
       pathname.startsWith('/print/oil-sale') ||
       pathname.startsWith('/oil-day-report');
-    router.replace(salesPrint ? '/login?workspace=sales' : '/');
+    const hrPrint = pathname.startsWith('/hr-');
+    router.replace(salesPrint ? '/login?workspace=sales' : hrPrint ? '/login?workspace=hr' : '/');
   }, [router, pathname]);
 
   return <div className="min-h-screen bg-white text-stone-900">{children}</div>;

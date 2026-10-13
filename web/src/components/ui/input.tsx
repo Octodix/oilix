@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils';
-import { InputHTMLAttributes, forwardRef } from 'react';
+import { FocusEvent, InputHTMLAttributes, forwardRef } from 'react';
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
@@ -7,8 +7,21 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   hint?: string;
 }
 
+const ZERO_VALUE = /^\s*0+([.,]0*)?\s*$/;
+
+/** A field holding only zero is selected on focus so typing "25" gives 25, not 025. */
+export function selectZeroOnFocus(e: FocusEvent<HTMLInputElement>) {
+  const el = e.currentTarget;
+  if (!ZERO_VALUE.test(el.value)) return;
+  el.select();
+  // Mouse-up after a click can collapse the selection in some browsers.
+  requestAnimationFrame(() => {
+    if (document.activeElement === el && ZERO_VALUE.test(el.value)) el.select();
+  });
+}
+
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ className, label, error, hint, id, ...props }, ref) => (
+  ({ className, label, error, hint, id, onFocus, ...props }, ref) => (
     <div className="space-y-2">
       {label && (
         <label htmlFor={id} className="block text-sm font-semibold text-[var(--app-text-muted)]">
@@ -27,6 +40,10 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           error && 'border-red-500 focus:border-red-500 focus:ring-red-500/25',
           className,
         )}
+        onFocus={(e) => {
+          selectZeroOnFocus(e);
+          onFocus?.(e);
+        }}
         {...props}
       />
       {hint && !error ? <p className="text-xs text-[var(--app-text-dim)]">{hint}</p> : null}

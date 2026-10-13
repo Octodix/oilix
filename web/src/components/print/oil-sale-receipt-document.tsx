@@ -1,6 +1,7 @@
 import { formatNumber } from '@/lib/utils';
 import { formatDateShortDz } from '@/lib/locale-dz';
 import { oilMeta, oilSourceMeta } from '@/lib/sales-nav';
+import { saleCustomerName } from '@/lib/sales-cart';
 
 export type OilSaleReceiptPayload = {
   sale: {
@@ -24,8 +25,10 @@ export type OilSaleReceiptPayload = {
     saleDate: string;
     saleTime: string;
     status: string;
-    customer: { name: string; phone?: string | null };
+    customer: { name: string; phone?: string | null } | null;
     createdBy?: { username: string; firstName?: string | null; lastName?: string | null };
+    createdByName?: string | null;
+    createdByUsername?: string | null;
     deviceCode?: string | null;
     deviceName?: string | null;
     cashRegisterCode?: string | null;
@@ -67,12 +70,19 @@ export function OilSaleReceiptDocument({ data }: { data: OilSaleReceiptPayload }
   const meta = sale.oilType ? oilMeta(sale.oilType) : null;
   const src = sale.oilSource ? oilSourceMeta(sale.oilSource) : null;
   const operator =
+    sale.createdByName ||
+    sale.createdByUsername ||
     [sale.createdBy?.firstName, sale.createdBy?.lastName].filter(Boolean).join(' ') ||
     sale.createdBy?.username ||
     '—';
   const assistPerLitre = Number(sale.assistancePerLitre ?? 0);
   const assistPerLitreTotal = Number(sale.assistancePerLitreTotal ?? 0);
   const hasOil = Number(sale.quantityL) > 0;
+  const oilItems = (sale.items ?? []).filter((i) => i.kind !== 'CONTAINER_ONLY');
+  // Header oil/price describe a single-oil sale only; mixed sales show them per line.
+  const singleOil =
+    new Set(oilItems.map((i) => `${i.oilSource}:${i.oilType}`)).size <= 1 &&
+    new Set(oilItems.map((i) => Number(i.unitPrice))).size <= 1;
 
   return (
     <div className="thermal-receipt oil-sale-receipt mx-auto w-[80mm] bg-white px-2 py-3 text-black" dir="rtl">
@@ -93,8 +103,8 @@ export function OilSaleReceiptDocument({ data }: { data: OilSaleReceiptPayload }
           label="التاريخ"
           value={`${formatDateShortDz(sale.saleDate)} ${sale.saleTime}`}
         />
-        <Row label="الزبون" value={sale.customer.name} bold />
-        {sale.customer.phone ? <Row label="الهاتف" value={sale.customer.phone} /> : null}
+        <Row label="الزبون" value={saleCustomerName(sale.customer)} bold />
+        {sale.customer?.phone ? <Row label="الهاتف" value={sale.customer.phone} /> : null}
         {sale.cashRegisterName || sale.cashRegisterCode ? (
           <Row label="الصندوق" value={sale.cashRegisterName || sale.cashRegisterCode || ''} />
         ) : null}
@@ -102,8 +112,10 @@ export function OilSaleReceiptDocument({ data }: { data: OilSaleReceiptPayload }
           <Row label="الجهاز" value={sale.deviceCode || sale.deviceName || ''} />
         ) : null}
         <Row label="المشغّل" value={operator} />
-        {src && hasOil ? <Row label="المصدر" value={src.label} bold /> : null}
-        {meta && hasOil ? <Row label="نوع الزيت" value={`${meta.emoji} ${meta.label}`} bold /> : null}
+        {src && hasOil && singleOil ? <Row label="المصدر" value={src.label} bold /> : null}
+        {meta && hasOil && singleOil ? (
+          <Row label="نوع الزيت" value={`${meta.emoji} ${meta.label}`} bold />
+        ) : null}
       </div>
 
       <div className="my-2 border-t border-dashed border-black" />
@@ -167,7 +179,7 @@ export function OilSaleReceiptDocument({ data }: { data: OilSaleReceiptPayload }
 
       <div className="space-y-0.5 text-[11px]">
         {hasOil ? <Row label="إجمالي الزيت" value={`${litres(sale.quantityL)} لتر`} /> : null}
-        {hasOil && Number(sale.unitPrice) > 0 ? (
+        {hasOil && singleOil && Number(sale.unitPrice) > 0 ? (
           <Row label="سعر / لتر" value={`${money(sale.unitPrice)} د.ج`} />
         ) : null}
         <Row label="المبلغ الإجمالي" value={`${money(sale.grossAmount)} د.ج`} />

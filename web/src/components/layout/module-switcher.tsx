@@ -2,11 +2,23 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeftRight, Factory, ShoppingBag } from 'lucide-react';
+import { ArrowLeftRight, Factory, ShoppingBag, UsersRound } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { useAuthStore } from '@/lib/auth-store';
 import { canAccessWorkspace } from '@/lib/permission-catalog';
-import { useWorkspaceStore, workspaceHome, type WorkspaceId } from '@/lib/workspace-store';
+import {
+  useWorkspaceStore,
+  workspaceFromPath,
+  workspaceHome,
+  type WorkspaceId,
+} from '@/lib/workspace-store';
 import { cn } from '@/lib/utils';
+
+const ITEMS: { id: WorkspaceId; label: string; icon: LucideIcon; active: string }[] = [
+  { id: 'mill', label: 'المعصرة', icon: Factory, active: 'bg-[var(--app-surface)] text-[var(--app-accent)] shadow-sm' },
+  { id: 'sales', label: 'بيع الزيت', icon: ShoppingBag, active: 'bg-amber-600 text-white shadow-sm' },
+  { id: 'hr', label: 'العمال', icon: UsersRound, active: 'bg-sky-700 text-white shadow-sm' },
+];
 
 export function ModuleSwitcher({
   className,
@@ -19,9 +31,12 @@ export function ModuleSwitcher({
   const user = useAuthStore((s) => s.user);
   const workspace = useWorkspaceStore((s) => s.workspace);
   const setWorkspace = useWorkspaceStore((s) => s.setWorkspace);
-  const canMill = canAccessWorkspace(user?.permissions, 'mill', user?.role);
-  const canSales = canAccessWorkspace(user?.permissions, 'sales', user?.role);
-  const current = workspace ?? (typeof window !== 'undefined' && window.location.pathname.startsWith('/sales') ? 'sales' : 'mill');
+  const current =
+    workspace ?? (typeof window !== 'undefined' ? workspaceFromPath(window.location.pathname) : 'mill');
+
+  const visible = ITEMS.filter(
+    (i) => i.id === current || canAccessWorkspace(user?.permissions, i.id, user?.role),
+  );
 
   function go(id: WorkspaceId) {
     setWorkspace(id);
@@ -39,34 +54,25 @@ export function ModuleSwitcher({
         role="tablist"
         aria-label="تبديل الوحدة"
       >
-        <button
-          type="button"
-          onClick={() => go('mill')}
-          className={cn(
-            'inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-bold transition',
-            current === 'mill'
-              ? 'bg-[var(--app-surface)] text-[var(--app-accent)] shadow-sm'
-              : 'text-[var(--app-text-muted)] hover:text-[var(--app-text)]',
-            !canMill && current !== 'mill' ? 'opacity-50' : '',
-          )}
-        >
-          <Factory className="h-3.5 w-3.5" />
-          المعصرة
-        </button>
-        <button
-          type="button"
-          onClick={() => go('sales')}
-          className={cn(
-            'inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-bold transition',
-            current === 'sales'
-              ? 'bg-amber-600 text-white shadow-sm'
-              : 'text-[var(--app-text-muted)] hover:text-[var(--app-text)]',
-            !canSales && current !== 'sales' ? 'opacity-50' : '',
-          )}
-        >
-          <ShoppingBag className="h-3.5 w-3.5" />
-          بيع الزيت
-        </button>
+        {visible.map((item) => {
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => go(item.id)}
+              className={cn(
+                'inline-flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-bold transition',
+                current === item.id
+                  ? item.active
+                  : 'text-[var(--app-text-muted)] hover:text-[var(--app-text)]',
+              )}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {item.label}
+            </button>
+          );
+        })}
       </div>
       {compact ? null : (
         <Link

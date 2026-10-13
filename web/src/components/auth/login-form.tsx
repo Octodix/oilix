@@ -10,7 +10,7 @@ import { api } from '@/lib/api';
 import { resolveApiBaseUrl } from '@/lib/api-url';
 import { useAuthStore, type AuthUser } from '@/lib/auth-store';
 import { canAccessWorkspace } from '@/lib/permission-catalog';
-import { useWorkspaceStore, workspaceHome } from '@/lib/workspace-store';
+import { WORKSPACE_IDS, useWorkspaceStore, workspaceHome } from '@/lib/workspace-store';
 import { cn } from '@/lib/utils';
 
 type LoginResponse = { accessToken: string; user: AuthUser };
@@ -33,7 +33,8 @@ function errorText(err: unknown): string {
 export function LoginForm() {
   const router = useRouter();
   const setAuth = useAuthStore((s) => s.setAuth);
-  const workspace = useWorkspaceStore((s) => s.workspace);
+  const setWorkspace = useWorkspaceStore((s) => s.setWorkspace);
+  const clearWorkspace = useWorkspaceStore((s) => s.clearWorkspace);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -66,13 +67,25 @@ export function LoginForm() {
       }
 
       setAuth(data.accessToken, data.user);
-      const ws = workspace ?? 'mill';
-      if (!canAccessWorkspace(data.user.permissions, ws, data.user.role)) {
-        router.replace(`/access-denied?workspace=${ws}`);
+      const allowed = WORKSPACE_IDS.filter((w) =>
+        canAccessWorkspace(data.user.permissions, w, data.user.role),
+      );
+
+      if (allowed.length === 0) {
+        router.replace('/access-denied?workspace=none');
         return;
       }
+
       toast.success('مرحباً بك');
-      router.push(workspaceHome(ws));
+
+      if (allowed.length === 1) {
+        setWorkspace(allowed[0]);
+        router.push(workspaceHome(allowed[0]));
+        return;
+      }
+
+      clearWorkspace();
+      router.push('/');
     } catch (err) {
       const ax = asAxiosError(err);
       if (ax && !ax.response) {

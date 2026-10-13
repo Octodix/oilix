@@ -17,6 +17,19 @@ export function oilBucketKey(source: OilSource, type: OilType): string {
   return `${source}:${type}`;
 }
 
+/** Litres to deduct per oil bucket — each line only touches its own oil's stock. */
+export function sumOilByBucket(
+  lines: Array<{ oilSource: OilSource | null; oilType: OilType | null; quantityL: number }>,
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const l of lines) {
+    if (!(l.quantityL > 0) || !l.oilSource || !l.oilType) continue;
+    const key = oilBucketKey(l.oilSource, l.oilType);
+    out.set(key, Math.round(((out.get(key) ?? 0) + l.quantityL) * 100) / 100);
+  }
+  return out;
+}
+
 export function parseOilBucketKey(key: string): OilBucket {
   const [oilSource, oilType] = key.split(':') as [OilSource, OilType];
   return { oilSource, oilType };

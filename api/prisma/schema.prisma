@@ -108,6 +108,36 @@ enum Permission {
   OIL_SALES_PRINT_RECEIPT
   OIL_SALES_SETTINGS_VIEW
   OIL_SALES_SETTINGS_EDIT
+  HR_ACCESS
+  HR_DASHBOARD_VIEW
+  HR_EMPLOYEES_VIEW
+  HR_EMPLOYEES_CREATE
+  HR_EMPLOYEES_EDIT
+  HR_EMPLOYEES_ARCHIVE
+  HR_SALARIES_VIEW
+  HR_SALARIES_EDIT
+  HR_CONTRACTS_MANAGE
+  HR_SCHEDULES_MANAGE
+  HR_ATTENDANCE_VIEW
+  HR_ATTENDANCE_CORRECT
+  HR_LEAVE_MANAGE
+  HR_LEAVE_APPROVE
+  HR_OVERTIME_MANAGE
+  HR_OVERTIME_APPROVE
+  HR_ADVANCES_MANAGE
+  HR_BONUSES_MANAGE
+  HR_DEDUCTIONS_MANAGE
+  HR_PAYROLL_VIEW
+  HR_PAYROLL_CALCULATE
+  HR_PAYROLL_VALIDATE
+  HR_SALARY_PAY
+  HR_EXPENSES_VIEW
+  HR_EXPENSES_MANAGE
+  HR_REPORTS_VIEW
+  HR_DEVICES_VIEW
+  HR_DEVICES_MANAGE
+  HR_DEVICES_SYNC
+  HR_SETTINGS_MANAGE
 }
 
 /** مصدر الزيت للبيع بالتجزئة */
@@ -244,6 +274,9 @@ model User {
   devicesApproved Device[] @relation("DeviceApprovedBy")
   cashSessionsOpened CashRegisterSession[] @relation("CashSessionOpenedBy")
   cashSessionsClosed CashRegisterSession[] @relation("CashSessionClosedBy")
+  oilDayReportPrints OilDayReportPrint[]
+  /** Optional link: an employee may (or may not) have an Oilix login */
+  hrEmployee      HrEmployee?
   createdAt       DateTime         @default(now()) @map("created_at")
   updatedAt       DateTime         @updatedAt @map("updated_at")
   deletedAt       DateTime?        @map("deleted_at")
@@ -300,6 +333,7 @@ model Season {
   oilContainerMovements OilContainerStockMovement[]
   oilContainerCounts OilContainerInventoryCount[]
   cashSessions CashRegisterSession[]
+  oilDayReportPrints OilDayReportPrint[]
   createdAt    DateTime     @default(now()) @map("created_at")
   updatedAt    DateTime     @updatedAt @map("updated_at")
 
@@ -619,8 +653,9 @@ model OilSale {
   seasonId                 String         @map("season_id")
   season                   Season         @relation(fields: [seasonId], references: [id])
   receiptNumber            Int            @map("receipt_number")
-  customerId               String         @map("customer_id")
-  customer                 OilSaleCustomer @relation(fields: [customerId], references: [id])
+  /** Null = walk-in counter sale (زبون عابر) — never allowed to carry debt */
+  customerId               String?        @map("customer_id")
+  customer                 OilSaleCustomer? @relation(fields: [customerId], references: [id])
   oilSource                OilSource?     @map("oil_source")
   oilType                  OilType?       @map("oil_type")
   quantityL                Decimal        @default(0) @map("quantity_l") @db.Decimal(14, 2)
@@ -644,6 +679,9 @@ model OilSale {
   saleTime                 String         @map("sale_time")
   createdById              String         @map("created_by_id")
   createdBy                User           @relation("OilSaleCreatedBy", fields: [createdById], references: [id])
+  /** Snapshot at sale time — historical receipts stay accurate if the user is renamed */
+  createdByName            String?        @map("created_by_name")
+  createdByUsername        String?        @map("created_by_username")
   deviceId                 String?        @map("device_id")
   device                   Device?        @relation(fields: [deviceId], references: [id])
   cashRegisterId           String?        @map("cash_register_id")
@@ -695,6 +733,9 @@ model OilSalePayment {
   notes              String?
   userId             String   @map("user_id")
   user               User     @relation(fields: [userId], references: [id])
+  /** Snapshot at payment time */
+  userName           String?  @map("user_name")
+  userUsername       String?  @map("user_username")
   deviceId           String?  @map("device_id")
   device             Device?  @relation(fields: [deviceId], references: [id])
   cashRegisterId     String?  @map("cash_register_id")
@@ -886,6 +927,37 @@ model OilSaleItem {
   @@map("oil_sale_items")
 }
 
+/**
+ * بيع معلّق (قائمة الانتظار) — مسودة فقط.
+ * لا تُنشئ حركة مخزون ولا حركة صندوق ولا قيد دين؛ تُحذف داخل معاملة إتمام البيع.
+ * priceLocks: أسعار يلتقطها الخادم عند التعليق ({ "OIL:GREEN": 900, "CNT:<id>": 150 }).
+ */
+model OilSaleHold {
+  id               String   @id @default(uuid())
+  seasonId         String   @map("season_id")
+  holdNumber       Int      @map("hold_number")
+  customerId       String?  @map("customer_id")
+  customerName     String?  @map("customer_name")
+  customerPhone    String?  @map("customer_phone")
+  payload          Json
+  priceLocks       Json     @map("price_locks")
+  itemCount        Int      @map("item_count")
+  totalAmount      Decimal  @map("total_amount") @db.Decimal(14, 2)
+  createdById      String   @map("created_by_id")
+  createdByName    String?  @map("created_by_name")
+  deviceId         String?  @map("device_id")
+  deviceName       String?  @map("device_name")
+  cashRegisterId   String?  @map("cash_register_id")
+  cashRegisterName String?  @map("cash_register_name")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@unique([seasonId, holdNumber])
+  @@index([seasonId, cashRegisterId])
+  @@index([seasonId, createdById])
+  @@map("oil_sale_holds")
+}
+
 model CashRegister {
   id        String                 @id @default(uuid())
   code      String                 @unique
@@ -897,6 +969,11 @@ model CashRegister {
   sessions  CashRegisterSession[]
   sales     OilSale[]
   oilSalePayments OilSalePayment[]
+  dayReportPrints OilDayReportPrint[]
+  hrSalaryPayments HrSalaryPayment[]
+  hrAdvances      HrAdvance[]
+  hrLoans         HrLoan[]
+  hrExpenses      HrExpense[]
   createdAt DateTime               @default(now()) @map("created_at")
   updatedAt DateTime               @updatedAt @map("updated_at")
 
@@ -929,6 +1006,8 @@ model Device {
   payments         Payment[]
   clients          Client[]
   auditLogs        AuditLog[]
+  dayReportPrints  OilDayReportPrint[]
+  printSettings    DevicePrintSettings?
   createdAt        DateTime         @default(now()) @map("created_at")
   updatedAt        DateTime         @updatedAt @map("updated_at")
 
@@ -966,6 +1045,10 @@ model CashRegisterSession {
   closingNote    String?           @map("closing_note")
   sales          OilSale[]
   oilSalePayments OilSalePayment[]
+  hrSalaryPayments HrSalaryPayment[]
+  hrAdvances     HrAdvance[]
+  hrLoans        HrLoan[]
+  hrExpenses     HrExpense[]
   createdAt      DateTime          @default(now()) @map("created_at")
   updatedAt      DateTime          @updatedAt @map("updated_at")
 
@@ -974,4 +1057,975 @@ model CashRegisterSession {
   @@index([deviceId])
   @@index([openedById])
   @@map("cash_register_sessions")
+}
+
+/**
+ * Printer configuration of a registered workstation. Belongs to the DEVICE, never the user:
+ * user permissions decide what may be printed, the device decides where it prints.
+ */
+model DevicePrintSettings {
+  id                  String   @id @default(uuid())
+  deviceId            String   @unique @map("device_id")
+  device              Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  directPrinting      Boolean  @default(false) @map("direct_printing")
+  browserFallback     Boolean  @default(true) @map("browser_fallback")
+  autoPrintAfterSale  Boolean  @default(false) @map("auto_print_after_sale")
+  receiptPrinter      String?  @map("receipt_printer")
+  /** 58 | 80 */
+  receiptPaperWidth   Int      @default(80) @map("receipt_paper_width")
+  receiptDirect       Boolean  @default(true) @map("receipt_direct")
+  receiptCopies       Int      @default(1) @map("receipt_copies")
+  documentPrinter     String?  @map("document_printer")
+  /** A4 | A5 */
+  documentPaperFormat String   @default("A4") @map("document_paper_format")
+  /** PORTRAIT | LANDSCAPE */
+  documentOrientation String   @default("PORTRAIT") @map("document_orientation")
+  documentCopies      Int      @default(1) @map("document_copies")
+  /** RECEIPT | DOCUMENT — which printer receives the financial day report */
+  dayReportTarget     String   @default("DOCUMENT") @map("day_report_target")
+  updatedById         String?  @map("updated_by_id")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@map("device_print_settings")
+}
+
+/**
+ * Print submissions. SUBMITTED means the job reached the Windows spooler / browser dialog —
+ * not that paper physically came out of the printer.
+ */
+model PrintJobLog {
+  id               String   @id @default(uuid())
+  jobId            String   @unique @map("job_id")
+  documentType     String   @map("document_type")
+  documentRef      String?  @map("document_ref")
+  copyLabel        String?  @map("copy_label")
+  isReprint        Boolean  @default(false) @map("is_reprint")
+  /** AGENT | BROWSER */
+  channel          String
+  /** SUBMITTED | FAILED | BROWSER_OPENED */
+  status           String
+  errorCode        String?  @map("error_code")
+  errorMessage     String?  @map("error_message")
+  printerName      String?  @map("printer_name")
+  copies           Int      @default(1)
+  userId           String   @map("user_id")
+  userName         String?  @map("user_name")
+  deviceId         String?  @map("device_id")
+  deviceCode       String?  @map("device_code")
+  deviceName       String?  @map("device_name")
+  cashRegisterId   String?  @map("cash_register_id")
+  cashRegisterName String?  @map("cash_register_name")
+  requestedAt      DateTime @default(now()) @map("requested_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@index([deviceId, requestedAt])
+  @@index([documentType, documentRef])
+  @@index([userId])
+  @@map("print_job_logs")
+}
+
+/** سجل طباعة / توليد اليومية المالية لصندوق معين */
+model OilDayReportPrint {
+  id                 String       @id @default(uuid())
+  seasonId           String       @map("season_id")
+  season             Season       @relation(fields: [seasonId], references: [id])
+  fromDate           DateTime     @map("from_date") @db.Date
+  toDate             DateTime     @map("to_date") @db.Date
+  cashRegisterId     String       @map("cash_register_id")
+  cashRegister       CashRegister @relation(fields: [cashRegisterId], references: [id])
+  cashRegisterCode   String       @map("cash_register_code")
+  cashRegisterName   String       @map("cash_register_name")
+  generatedById      String       @map("generated_by_id")
+  generatedBy        User         @relation(fields: [generatedById], references: [id])
+  generatedByName    String       @map("generated_by_name")
+  deviceId           String?      @map("device_id")
+  device             Device?      @relation(fields: [deviceId], references: [id])
+  deviceCode         String?      @map("device_code")
+  deviceName         String?      @map("device_name")
+  createdAt          DateTime     @default(now()) @map("created_at")
+
+  @@index([seasonId, cashRegisterId, fromDate])
+  @@index([generatedById])
+  @@index([deviceId])
+  @@map("oil_day_report_prints")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ressources humaines / الموارد البشرية
+// Not season-scoped. Actor references (createdById, …) are plain columns with name
+// snapshots so a user purge never cascades into personnel history.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum HrEmployeeStatus {
+  ACTIVE
+  ON_LEAVE
+  SUSPENDED
+  LEFT
+}
+
+enum HrSalaryMode {
+  MONTHLY
+  DAILY
+  HOURLY
+}
+
+enum HrApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum HrPayrollStatus {
+  DRAFT
+  CALCULATED
+  REVIEWED
+  VALIDATED
+  PAID
+  CLOSED
+}
+
+model HrDepartment {
+  id          String                 @id @default(uuid())
+  code        String?                @unique
+  name        String
+  nameFr      String?                @map("name_fr")
+  isActive    Boolean                @default(true) @map("is_active")
+  notes       String?
+  employees   HrEmployee[]
+  contracts   HrContract[]
+  scheduleAssignments HrScheduleAssignment[]
+  createdAt   DateTime               @default(now()) @map("created_at")
+  updatedAt   DateTime               @updatedAt @map("updated_at")
+
+  @@map("hr_departments")
+}
+
+model HrEmployee {
+  id                     String           @id @default(uuid())
+  matricule              String           @unique
+  firstName              String           @map("first_name")
+  lastName               String           @map("last_name")
+  /** Small data-URL thumbnail (resized client-side) */
+  photo                  String?
+  birthDate              DateTime?        @map("birth_date") @db.Date
+  phone                  String?
+  address                String?
+  nationalIdNumber       String?          @map("national_id_number")
+  nationalIdIssuedAt     DateTime?        @map("national_id_issued_at") @db.Date
+  nationalIdIssuedBy     String?          @map("national_id_issued_by")
+  socialSecurityNumber   String?          @map("social_security_number")
+  emergencyContactName   String?          @map("emergency_contact_name")
+  emergencyContactPhone  String?          @map("emergency_contact_phone")
+  emergencyContactRelation String?        @map("emergency_contact_relation")
+  jobTitle               String?          @map("job_title")
+  departmentId           String?          @map("department_id")
+  department             HrDepartment?    @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  workSite               String?          @map("work_site")
+  hireDate               DateTime         @map("hire_date") @db.Date
+  status                 HrEmployeeStatus @default(ACTIVE)
+  leftAt                 DateTime?        @map("left_at") @db.Date
+  leftReason             String?          @map("left_reason")
+  /** CASH | BANK_TRANSFER | CCP | CHEQUE */
+  paymentMethod          String           @default("CASH") @map("payment_method")
+  bankAccount            String?          @map("bank_account")
+  userId                 String?          @unique @map("user_id")
+  user                   User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  notes                  String?
+  archivedAt             DateTime?        @map("archived_at")
+  createdById            String?          @map("created_by_id")
+  contracts              HrContract[]
+  scheduleAssignments    HrScheduleAssignment[]
+  deviceMappings         HrAttendanceDeviceUser[]
+  attendanceEvents       HrAttendanceEvent[]
+  attendanceDays         HrAttendanceDay[]
+  attendanceCorrections  HrAttendanceCorrection[]
+  leaveEntitlements      HrLeaveEntitlement[]
+  leaveRequests          HrLeaveRequest[]
+  sickLeaves             HrSickLeave[]
+  absences               HrAbsence[]
+  overtimes              HrOvertime[]
+  advances               HrAdvance[]
+  loans                  HrLoan[]
+  bonuses                HrBonus[]
+  deductions             HrDeduction[]
+  payslips               HrPayslip[]
+  salaryPayments         HrSalaryPayment[]
+  expenses               HrExpense[]
+  createdAt              DateTime         @default(now()) @map("created_at")
+  updatedAt              DateTime         @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([departmentId])
+  @@index([lastName, firstName])
+  @@index([archivedAt])
+  @@map("hr_employees")
+}
+
+/** Contract history — a salary change is a new contract/amendment, never an in-place rewrite once paid. */
+model HrContract {
+  id                String        @id @default(uuid())
+  employeeId        String        @map("employee_id")
+  employee          HrEmployee    @relation(fields: [employeeId], references: [id])
+  /** CDI | CDD | SEASONAL | PART_TIME | TRIAL | INTERNSHIP | OTHER */
+  contractType      String        @map("contract_type")
+  startDate         DateTime      @map("start_date") @db.Date
+  endDate           DateTime?     @map("end_date") @db.Date
+  trialEndDate      DateTime?     @map("trial_end_date") @db.Date
+  salaryMode        HrSalaryMode  @default(MONTHLY) @map("salary_mode")
+  /** Monthly amount, daily rate or hourly rate depending on salaryMode */
+  baseSalary        Decimal       @map("base_salary") @db.Decimal(14, 2)
+  weeklyHours       Decimal       @default(40) @map("weekly_hours") @db.Decimal(5, 2)
+  jobTitle          String?       @map("job_title")
+  departmentId      String?       @map("department_id")
+  department        HrDepartment? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  /** ACTIVE | ENDED | TERMINATED */
+  status            String        @default("ACTIVE")
+  terminatedAt      DateTime?     @map("terminated_at") @db.Date
+  terminationReason String?       @map("termination_reason")
+  documentRef       String?       @map("document_ref")
+  notes             String?
+  createdById       String?       @map("created_by_id")
+  createdByName     String?       @map("created_by_name")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  @@index([employeeId, startDate])
+  @@index([status])
+  @@map("hr_contracts")
+}
+
+model HrWorkSchedule {
+  id           String                 @id @default(uuid())
+  code         String                 @unique
+  name         String
+  description  String?
+  isActive     Boolean                @default(true) @map("is_active")
+  /** Unpaid break deducted from worked time on continuous days (minutes) */
+  breakMinutes Int                    @default(0) @map("break_minutes")
+  segments     HrScheduleSegment[]
+  assignments  HrScheduleAssignment[]
+  createdAt    DateTime               @default(now()) @map("created_at")
+  updatedAt    DateTime               @updatedAt @map("updated_at")
+
+  @@map("hr_work_schedules")
+}
+
+/** One working block on a weekday. endMinute <= startMinute ⇒ the block ends the next day (night shift). */
+model HrScheduleSegment {
+  id          String         @id @default(uuid())
+  scheduleId  String         @map("schedule_id")
+  schedule    HrWorkSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  /** 0 = Sunday … 6 = Saturday */
+  weekday     Int
+  startMinute Int            @map("start_minute")
+  endMinute   Int            @map("end_minute")
+  sortOrder   Int            @default(0) @map("sort_order")
+
+  @@index([scheduleId, weekday])
+  @@map("hr_schedule_segments")
+}
+
+/** Employee or department schedule for a date range; isOverride = temporary override. */
+model HrScheduleAssignment {
+  id           String         @id @default(uuid())
+  scheduleId   String         @map("schedule_id")
+  schedule     HrWorkSchedule @relation(fields: [scheduleId], references: [id])
+  employeeId   String?        @map("employee_id")
+  employee     HrEmployee?    @relation(fields: [employeeId], references: [id])
+  departmentId String?        @map("department_id")
+  department   HrDepartment?  @relation(fields: [departmentId], references: [id])
+  startDate    DateTime       @map("start_date") @db.Date
+  endDate      DateTime?      @map("end_date") @db.Date
+  isOverride   Boolean        @default(false) @map("is_override")
+  reason       String?
+  createdById  String?        @map("created_by_id")
+  createdAt    DateTime       @default(now()) @map("created_at")
+
+  @@index([employeeId, startDate])
+  @@index([departmentId, startDate])
+  @@map("hr_schedule_assignments")
+}
+
+model HrHoliday {
+  id        String   @id @default(uuid())
+  date      DateTime @unique @db.Date
+  name      String
+  isPaid    Boolean  @default(true) @map("is_paid")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("hr_holidays")
+}
+
+/** Physical attendance terminal (ZKTeco or other) — provider decides how events arrive. */
+model HrAttendanceDevice {
+  id                    String    @id @default(uuid())
+  name                  String
+  model                 String?
+  serialNumber          String?   @unique @map("serial_number")
+  ipAddress             String?   @map("ip_address")
+  port                  Int?
+  /** ZKTECO_ADMS | ZKTECO_TCP | ZKTECO_FILE */
+  provider              String
+  /** Numeric communication key for the TCP SDK protocol (0 = none) */
+  commKey               String?   @map("comm_key")
+  location              String?
+  isEnabled             Boolean   @default(true) @map("is_enabled")
+  /** Device clock offset from UTC — Algeria = +60 */
+  timezoneOffsetMinutes Int       @default(60) @map("timezone_offset_minutes")
+  /** Column positions for exported attendance files (USB) */
+  fileColumnMap         Json?     @map("file_column_map")
+  syncIntervalMinutes   Int       @default(0) @map("sync_interval_minutes")
+  /** UNKNOWN | ONLINE | SYNCING | OFFLINE | ERROR */
+  status                String    @default("UNKNOWN")
+  lastConnectionAt      DateTime? @map("last_connection_at")
+  lastSyncAt            DateTime? @map("last_sync_at")
+  lastSuccessfulSyncAt  DateTime? @map("last_successful_sync_at")
+  lastError             String?   @map("last_error")
+  /** ADMS ATTLOGStamp cursor reported back to the device */
+  lastLogStamp          String?   @map("last_log_stamp")
+  lastEventAt           DateTime? @map("last_event_at")
+  deviceInfo            Json?     @map("device_info")
+  lastDiagnostic        Json?     @map("last_diagnostic")
+  lastDiagnosticAt      DateTime? @map("last_diagnostic_at")
+  /** Set when the first real punch from this terminal was imported */
+  firstEventImportedAt  DateTime? @map("first_event_imported_at")
+  notes                 String?
+  userMappings          HrAttendanceDeviceUser[]
+  events                HrAttendanceEvent[]
+  syncLogs              HrAttendanceSyncLog[]
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  @@map("hr_attendance_devices")
+}
+
+/** Stable mapping Oilix employee ↔ user/PIN stored in the terminal (never by name). */
+model HrAttendanceDeviceUser {
+  id             String             @id @default(uuid())
+  deviceId       String             @map("device_id")
+  device         HrAttendanceDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  deviceUserId   String             @map("device_user_id")
+  employeeId     String             @map("employee_id")
+  employee       HrEmployee         @relation(fields: [employeeId], references: [id])
+  deviceUserName String?            @map("device_user_name")
+  createdById    String?            @map("created_by_id")
+  createdAt      DateTime           @default(now()) @map("created_at")
+
+  @@unique([deviceId, deviceUserId])
+  @@index([employeeId])
+  @@map("hr_attendance_device_users")
+}
+
+model HrAttendanceSyncLog {
+  id             String              @id @default(uuid())
+  deviceId       String?             @map("device_id")
+  device         HrAttendanceDevice? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  provider       String
+  /** MANUAL | SCHEDULED | PUSH | FILE | DIAGNOSTIC */
+  trigger        String
+  /** RUNNING | SUCCESS | FAILED | REJECTED */
+  status         String
+  startedAt      DateTime            @default(now()) @map("started_at")
+  finishedAt     DateTime?           @map("finished_at")
+  fetchedCount   Int                 @default(0) @map("fetched_count")
+  insertedCount  Int                 @default(0) @map("inserted_count")
+  duplicateCount Int                 @default(0) @map("duplicate_count")
+  unmappedCount  Int                 @default(0) @map("unmapped_count")
+  invalidCount   Int                 @default(0) @map("invalid_count")
+  errorMessage   String?             @map("error_message")
+  fileName       String?             @map("file_name")
+  fileHash       String?             @map("file_hash")
+  details        Json?
+  userId         String?             @map("user_id")
+  userName       String?             @map("user_name")
+  events         HrAttendanceEvent[]
+
+  @@index([deviceId, startedAt])
+  @@map("hr_attendance_sync_logs")
+}
+
+/**
+ * Raw punch exactly as received from the terminal — immutable.
+ * dedupeKey makes every sync idempotent. Only employeeId (a derived mapping link) may be
+ * filled in later when a device user gets mapped.
+ */
+model HrAttendanceEvent {
+  id              String               @id @default(uuid())
+  dedupeKey       String               @unique @map("dedupe_key")
+  deviceId        String?              @map("device_id")
+  device          HrAttendanceDevice?  @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  /** ADMS_PUSH | FILE_IMPORT | TCP_PULL */
+  source          String
+  deviceUserId    String               @map("device_user_id")
+  employeeId      String?              @map("employee_id")
+  employee        HrEmployee?          @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  punchedAt       DateTime             @map("punched_at")
+  localDate       DateTime             @map("local_date") @db.Date
+  deviceLocalTime String               @map("device_local_time")
+  punchState      Int?                 @map("punch_state")
+  verifyCode      Int?                 @map("verify_code")
+  /** FINGERPRINT | CARD | PIN | FACE | PALM | OTHER | UNKNOWN */
+  verifyMethod    String               @map("verify_method")
+  workCode        String?              @map("work_code")
+  rawLine         String?              @map("raw_line")
+  batchId         String?              @map("batch_id")
+  batch           HrAttendanceSyncLog? @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  receivedAt      DateTime             @default(now()) @map("received_at")
+
+  @@index([employeeId, punchedAt])
+  @@index([deviceId, punchedAt])
+  @@index([deviceUserId])
+  @@index([localDate])
+  @@map("hr_attendance_events")
+}
+
+/** Processed attendance (one row per employee/day) — recomputed from raw events + corrections. */
+model HrAttendanceDay {
+  id                    String     @id @default(uuid())
+  employeeId            String     @map("employee_id")
+  employee              HrEmployee @relation(fields: [employeeId], references: [id])
+  date                  DateTime   @db.Date
+  status                String
+  flags                 String[]   @default([])
+  isWorkingDay          Boolean    @default(false) @map("is_working_day")
+  scheduleId            String?    @map("schedule_id")
+  scheduleName          String?    @map("schedule_name")
+  scheduledStart        DateTime?  @map("scheduled_start")
+  scheduledEnd          DateTime?  @map("scheduled_end")
+  expectedMinutes       Int        @default(0) @map("expected_minutes")
+  firstIn               DateTime?  @map("first_in")
+  lastOut               DateTime?  @map("last_out")
+  punchCount            Int        @default(0) @map("punch_count")
+  inEventId             String?    @map("in_event_id")
+  outEventId            String?    @map("out_event_id")
+  inVerifyMethod        String?    @map("in_verify_method")
+  inDeviceId            String?    @map("in_device_id")
+  workedMinutes         Int        @default(0) @map("worked_minutes")
+  lateMinutes           Int        @default(0) @map("late_minutes")
+  chargeableLateMinutes Int        @default(0) @map("chargeable_late_minutes")
+  isLate                Boolean    @default(false) @map("is_late")
+  earlyLeaveMinutes     Int        @default(0) @map("early_leave_minutes")
+  overtimeMinutes       Int        @default(0) @map("overtime_minutes")
+  overtimeRule          String?    @map("overtime_rule")
+  leaveRequestId        String?    @map("leave_request_id")
+  sickLeaveId           String?    @map("sick_leave_id")
+  absenceId             String?    @map("absence_id")
+  holidayId             String?    @map("holiday_id")
+  lateJustified         Boolean    @default(false) @map("late_justified")
+  lateJustification     String?    @map("late_justification")
+  lateDecidedById       String?    @map("late_decided_by_id")
+  lateDecidedByName     String?    @map("late_decided_by_name")
+  lateDecidedAt         DateTime?  @map("late_decided_at")
+  needsReview           Boolean    @default(false) @map("needs_review")
+  isCorrected           Boolean    @default(false) @map("is_corrected")
+  computedAt            DateTime   @default(now()) @map("computed_at")
+
+  @@unique([employeeId, date])
+  @@index([date])
+  @@index([status])
+  @@map("hr_attendance_days")
+}
+
+/** Manual correction of the PROCESSED layer — raw events are never modified. */
+model HrAttendanceCorrection {
+  id            String     @id @default(uuid())
+  employeeId    String     @map("employee_id")
+  employee      HrEmployee @relation(fields: [employeeId], references: [id])
+  date          DateTime   @db.Date
+  checkIn       DateTime?  @map("check_in")
+  checkOut      DateTime?  @map("check_out")
+  /** Optional status override, e.g. PRESENT when the terminal was offline */
+  status        String?
+  reason        String
+  oldValue      Json?      @map("old_value")
+  newValue      Json?      @map("new_value")
+  createdById   String     @map("created_by_id")
+  createdByName String?    @map("created_by_name")
+  createdAt     DateTime   @default(now()) @map("created_at")
+  revokedAt     DateTime?  @map("revoked_at")
+  revokedById   String?    @map("revoked_by_id")
+  revokedByName String?    @map("revoked_by_name")
+  revokeReason  String?    @map("revoke_reason")
+
+  @@index([employeeId, date])
+  @@map("hr_attendance_corrections")
+}
+
+model HrLeaveType {
+  id                 String               @id @default(uuid())
+  code               String               @unique
+  name               String
+  nameFr             String?              @map("name_fr")
+  isPaid             Boolean              @default(true) @map("is_paid")
+  deductsFromBalance Boolean              @default(false) @map("deducts_from_balance")
+  defaultDaysPerYear Decimal?             @map("default_days_per_year") @db.Decimal(5, 1)
+  isActive           Boolean              @default(true) @map("is_active")
+  sortOrder          Int                  @default(0) @map("sort_order")
+  entitlements       HrLeaveEntitlement[]
+  requests           HrLeaveRequest[]
+  createdAt          DateTime             @default(now()) @map("created_at")
+  updatedAt          DateTime             @updatedAt @map("updated_at")
+
+  @@map("hr_leave_types")
+}
+
+model HrLeaveEntitlement {
+  id          String      @id @default(uuid())
+  employeeId  String      @map("employee_id")
+  employee    HrEmployee  @relation(fields: [employeeId], references: [id])
+  leaveTypeId String      @map("leave_type_id")
+  leaveType   HrLeaveType @relation(fields: [leaveTypeId], references: [id])
+  year        Int
+  days        Decimal     @db.Decimal(5, 1)
+  notes       String?
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  @@unique([employeeId, leaveTypeId, year])
+  @@map("hr_leave_entitlements")
+}
+
+model HrLeaveRequest {
+  id              String           @id @default(uuid())
+  employeeId      String           @map("employee_id")
+  employee        HrEmployee       @relation(fields: [employeeId], references: [id])
+  leaveTypeId     String           @map("leave_type_id")
+  leaveType       HrLeaveType      @relation(fields: [leaveTypeId], references: [id])
+  startDate       DateTime         @map("start_date") @db.Date
+  endDate         DateTime         @map("end_date") @db.Date
+  days            Decimal          @db.Decimal(5, 1)
+  reason          String?
+  attachment      String?
+  attachmentName  String?          @map("attachment_name")
+  status          HrApprovalStatus @default(PENDING)
+  requestedById   String?          @map("requested_by_id")
+  requestedByName String?          @map("requested_by_name")
+  decidedById     String?          @map("decided_by_id")
+  decidedByName   String?          @map("decided_by_name")
+  decidedAt       DateTime?        @map("decided_at")
+  decisionNote    String?          @map("decision_note")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  @@index([employeeId, startDate])
+  @@index([status])
+  @@map("hr_leave_requests")
+}
+
+model HrSickLeave {
+  id               String           @id @default(uuid())
+  employeeId       String           @map("employee_id")
+  employee         HrEmployee       @relation(fields: [employeeId], references: [id])
+  startDate        DateTime         @map("start_date") @db.Date
+  endDate          DateTime         @map("end_date") @db.Date
+  days             Int
+  certificateRef   String?          @map("certificate_ref")
+  doctorName       String?          @map("doctor_name")
+  attachment       String?
+  attachmentName   String?          @map("attachment_name")
+  notes            String?
+  status           HrApprovalStatus @default(PENDING)
+  /** UNPAID | PAID | PARTIAL — employer payroll treatment */
+  payrollTreatment String           @default("UNPAID") @map("payroll_treatment")
+  paidPercent      Decimal          @default(0) @map("paid_percent") @db.Decimal(5, 2)
+  createdById      String?          @map("created_by_id")
+  createdByName    String?          @map("created_by_name")
+  decidedById      String?          @map("decided_by_id")
+  decidedByName    String?          @map("decided_by_name")
+  decidedAt        DateTime?        @map("decided_at")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  @@index([employeeId, startDate])
+  @@index([status])
+  @@map("hr_sick_leaves")
+}
+
+model HrAbsenceType {
+  id          String      @id @default(uuid())
+  code        String      @unique
+  name        String
+  nameFr      String?     @map("name_fr")
+  isPaid      Boolean     @default(false) @map("is_paid")
+  isJustified Boolean     @default(true) @map("is_justified")
+  isActive    Boolean     @default(true) @map("is_active")
+  sortOrder   Int         @default(0) @map("sort_order")
+  absences    HrAbsence[]
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  @@map("hr_absence_types")
+}
+
+model HrAbsence {
+  id             String           @id @default(uuid())
+  employeeId     String           @map("employee_id")
+  employee       HrEmployee       @relation(fields: [employeeId], references: [id])
+  absenceTypeId  String           @map("absence_type_id")
+  absenceType    HrAbsenceType    @relation(fields: [absenceTypeId], references: [id])
+  startDate      DateTime         @map("start_date") @db.Date
+  endDate        DateTime         @map("end_date") @db.Date
+  days           Decimal          @db.Decimal(5, 1)
+  reason         String?
+  isPaid         Boolean          @default(false) @map("is_paid")
+  attachment     String?
+  attachmentName String?          @map("attachment_name")
+  status         HrApprovalStatus @default(PENDING)
+  createdById    String?          @map("created_by_id")
+  createdByName  String?          @map("created_by_name")
+  decidedById    String?          @map("decided_by_id")
+  decidedByName  String?          @map("decided_by_name")
+  decidedAt      DateTime?        @map("decided_at")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  @@index([employeeId, startDate])
+  @@index([status])
+  @@map("hr_absences")
+}
+
+/** Calculated overtime (from attendance) vs approved overtime (what payroll may pay). */
+model HrOvertime {
+  id                String           @id @default(uuid())
+  employeeId        String           @map("employee_id")
+  employee          HrEmployee       @relation(fields: [employeeId], references: [id])
+  date              DateTime         @db.Date
+  /** CALCULATED | MANUAL */
+  source            String
+  calculatedMinutes Int              @default(0) @map("calculated_minutes")
+  requestedMinutes  Int              @map("requested_minutes")
+  approvedMinutes   Int?             @map("approved_minutes")
+  multiplier        Decimal          @db.Decimal(5, 2)
+  /** WORKDAY | REST_DAY | HOLIDAY */
+  ruleCode          String           @default("WORKDAY") @map("rule_code")
+  reason            String?
+  status            HrApprovalStatus @default(PENDING)
+  decidedById       String?          @map("decided_by_id")
+  decidedByName     String?          @map("decided_by_name")
+  decidedAt         DateTime?        @map("decided_at")
+  decisionNote      String?          @map("decision_note")
+  payslipId         String?          @map("payslip_id")
+  payslip           HrPayslip?       @relation(fields: [payslipId], references: [id], onDelete: SetNull)
+  createdById       String?          @map("created_by_id")
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+
+  @@index([employeeId, date])
+  @@index([status])
+  @@map("hr_overtimes")
+}
+
+/** Salary advance (تسبيق) — deducted once by a validated payslip. */
+model HrAdvance {
+  id                String               @id @default(uuid())
+  employeeId        String               @map("employee_id")
+  employee          HrEmployee           @relation(fields: [employeeId], references: [id])
+  amount            Decimal              @db.Decimal(14, 2)
+  date              DateTime             @db.Date
+  /** CASH_REGISTER | CASH | BANK_TRANSFER | CCP | CHEQUE */
+  paymentMethod     String               @map("payment_method")
+  cashRegisterId    String?              @map("cash_register_id")
+  cashRegister      CashRegister?        @relation(fields: [cashRegisterId], references: [id], onDelete: SetNull)
+  cashSessionId     String?              @map("cash_session_id")
+  cashSession       CashRegisterSession? @relation(fields: [cashSessionId], references: [id], onDelete: SetNull)
+  cashRegisterName  String?              @map("cash_register_name")
+  reference         String?
+  deductYear        Int                  @map("deduct_year")
+  deductMonth       Int                  @map("deduct_month")
+  /** OPEN | DEDUCTED | CANCELLED */
+  status            String               @default("OPEN")
+  deductedPayslipId String?              @map("deducted_payslip_id")
+  deductedPayslip   HrPayslip?           @relation(fields: [deductedPayslipId], references: [id], onDelete: SetNull)
+  notes             String?
+  idempotencyKey    String?              @unique @map("idempotency_key")
+  createdById       String?              @map("created_by_id")
+  createdByName     String?              @map("created_by_name")
+  cancelledAt       DateTime?            @map("cancelled_at")
+  cancelledById     String?              @map("cancelled_by_id")
+  cancelledByName   String?              @map("cancelled_by_name")
+  cancelReason      String?              @map("cancel_reason")
+  createdAt         DateTime             @default(now()) @map("created_at")
+  updatedAt         DateTime             @updatedAt @map("updated_at")
+
+  @@index([employeeId, date])
+  @@index([status])
+  @@map("hr_advances")
+}
+
+model HrLoan {
+  id                String               @id @default(uuid())
+  employeeId        String               @map("employee_id")
+  employee          HrEmployee           @relation(fields: [employeeId], references: [id])
+  principal         Decimal              @db.Decimal(14, 2)
+  installmentAmount Decimal              @map("installment_amount") @db.Decimal(14, 2)
+  startYear         Int                  @map("start_year")
+  startMonth        Int                  @map("start_month")
+  disbursedAt       DateTime             @map("disbursed_at") @db.Date
+  paymentMethod     String               @map("payment_method")
+  cashRegisterId    String?              @map("cash_register_id")
+  cashRegister      CashRegister?        @relation(fields: [cashRegisterId], references: [id], onDelete: SetNull)
+  cashSessionId     String?              @map("cash_session_id")
+  cashSession       CashRegisterSession? @relation(fields: [cashSessionId], references: [id], onDelete: SetNull)
+  cashRegisterName  String?              @map("cash_register_name")
+  reference         String?
+  /** ACTIVE | COMPLETED | CANCELLED */
+  status            String               @default("ACTIVE")
+  notes             String?
+  idempotencyKey    String?              @unique @map("idempotency_key")
+  createdById       String?              @map("created_by_id")
+  createdByName     String?              @map("created_by_name")
+  repayments        HrLoanRepayment[]
+  createdAt         DateTime             @default(now()) @map("created_at")
+  updatedAt         DateTime             @updatedAt @map("updated_at")
+
+  @@index([employeeId])
+  @@index([status])
+  @@map("hr_loans")
+}
+
+model HrLoanRepayment {
+  id            String     @id @default(uuid())
+  loanId        String     @map("loan_id")
+  loan          HrLoan     @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  payslipId     String?    @map("payslip_id")
+  payslip       HrPayslip? @relation(fields: [payslipId], references: [id], onDelete: SetNull)
+  amount        Decimal    @db.Decimal(14, 2)
+  date          DateTime   @db.Date
+  /** PAYROLL | MANUAL */
+  source        String
+  notes         String?
+  createdById   String?    @map("created_by_id")
+  createdByName String?    @map("created_by_name")
+  createdAt     DateTime   @default(now()) @map("created_at")
+
+  @@unique([loanId, payslipId])
+  @@map("hr_loan_repayments")
+}
+
+/** Primes & indemnités (BONUS | ALLOWANCE) for a payroll month. */
+model HrBonus {
+  id            String           @id @default(uuid())
+  employeeId    String           @map("employee_id")
+  employee      HrEmployee       @relation(fields: [employeeId], references: [id])
+  /** BONUS | ALLOWANCE */
+  category      String           @default("BONUS")
+  bonusType     String           @map("bonus_type")
+  amount        Decimal          @db.Decimal(14, 2)
+  year          Int
+  month         Int
+  reason        String?
+  status        HrApprovalStatus @default(PENDING)
+  createdById   String?          @map("created_by_id")
+  createdByName String?          @map("created_by_name")
+  decidedById   String?          @map("decided_by_id")
+  decidedByName String?          @map("decided_by_name")
+  decidedAt     DateTime?        @map("decided_at")
+  payslipId     String?          @map("payslip_id")
+  payslip       HrPayslip?       @relation(fields: [payslipId], references: [id], onDelete: SetNull)
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+
+  @@index([employeeId, year, month])
+  @@index([status])
+  @@map("hr_bonuses")
+}
+
+/** Manual deductions (retenues). Automatic ones (absence/late) are computed by payroll. */
+model HrDeduction {
+  id            String           @id @default(uuid())
+  employeeId    String           @map("employee_id")
+  employee      HrEmployee       @relation(fields: [employeeId], references: [id])
+  deductionType String           @map("deduction_type")
+  amount        Decimal          @db.Decimal(14, 2)
+  year          Int
+  month         Int
+  reason        String
+  status        HrApprovalStatus @default(PENDING)
+  createdById   String?          @map("created_by_id")
+  createdByName String?          @map("created_by_name")
+  decidedById   String?          @map("decided_by_id")
+  decidedByName String?          @map("decided_by_name")
+  decidedAt     DateTime?        @map("decided_at")
+  payslipId     String?          @map("payslip_id")
+  payslip       HrPayslip?       @relation(fields: [payslipId], references: [id], onDelete: SetNull)
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+
+  @@index([employeeId, year, month])
+  @@index([status])
+  @@map("hr_deductions")
+}
+
+model HrPayrollPeriod {
+  id               String            @id @default(uuid())
+  year             Int
+  month            Int
+  status           HrPayrollStatus   @default(DRAFT)
+  startDate        DateTime          @map("start_date") @db.Date
+  endDate          DateTime          @map("end_date") @db.Date
+  /** HR policy in force when the period was validated */
+  settingsSnapshot Json?             @map("settings_snapshot")
+  employeeCount    Int               @default(0) @map("employee_count")
+  totalGross       Decimal           @default(0) @map("total_gross") @db.Decimal(14, 2)
+  totalDeductions  Decimal           @default(0) @map("total_deductions") @db.Decimal(14, 2)
+  totalNet         Decimal           @default(0) @map("total_net") @db.Decimal(14, 2)
+  totalPaid        Decimal           @default(0) @map("total_paid") @db.Decimal(14, 2)
+  warnings         Json?
+  notes            String?
+  calculatedAt     DateTime?         @map("calculated_at")
+  calculatedById   String?           @map("calculated_by_id")
+  calculatedByName String?           @map("calculated_by_name")
+  reviewedAt       DateTime?         @map("reviewed_at")
+  reviewedById     String?           @map("reviewed_by_id")
+  reviewedByName   String?           @map("reviewed_by_name")
+  validatedAt      DateTime?         @map("validated_at")
+  validatedById    String?           @map("validated_by_id")
+  validatedByName  String?           @map("validated_by_name")
+  paidAt           DateTime?         @map("paid_at")
+  closedAt         DateTime?         @map("closed_at")
+  closedById       String?           @map("closed_by_id")
+  closedByName     String?           @map("closed_by_name")
+  payslips         HrPayslip[]
+  payments         HrSalaryPayment[]
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+
+  @@unique([year, month])
+  @@map("hr_payroll_periods")
+}
+
+/** Bulletin de paie — every value is a snapshot; validated rows are never recomputed. */
+model HrPayslip {
+  id                String            @id @default(uuid())
+  periodId          String            @map("period_id")
+  period            HrPayrollPeriod   @relation(fields: [periodId], references: [id])
+  employeeId        String            @map("employee_id")
+  employee          HrEmployee        @relation(fields: [employeeId], references: [id])
+  /** CALCULATED | VALIDATED */
+  status            String            @default("CALCULATED")
+  employeeSnapshot  Json              @map("employee_snapshot")
+  contractId        String?           @map("contract_id")
+  contractSnapshot  Json?             @map("contract_snapshot")
+  attendanceSummary Json              @map("attendance_summary")
+  salaryMode        HrSalaryMode      @map("salary_mode")
+  baseSalary        Decimal           @map("base_salary") @db.Decimal(14, 2)
+  dailyRate         Decimal           @map("daily_rate") @db.Decimal(14, 4)
+  hourlyRate        Decimal           @map("hourly_rate") @db.Decimal(14, 4)
+  grossEarnings     Decimal           @map("gross_earnings") @db.Decimal(14, 2)
+  totalDeductions   Decimal           @map("total_deductions") @db.Decimal(14, 2)
+  netSalary         Decimal           @map("net_salary") @db.Decimal(14, 2)
+  paidAmount        Decimal           @default(0) @map("paid_amount") @db.Decimal(14, 2)
+  /** UNPAID | PARTIAL | PAID */
+  paymentStatus     String            @default("UNPAID") @map("payment_status")
+  warnings          Json?
+  calculatedAt      DateTime          @default(now()) @map("calculated_at")
+  lockedAt          DateTime?         @map("locked_at")
+  notes             String?
+  lines             HrPayslipLine[]
+  payments          HrSalaryPayment[]
+  overtimes         HrOvertime[]
+  advances          HrAdvance[]
+  loanRepayments    HrLoanRepayment[]
+  bonuses           HrBonus[]
+  deductions        HrDeduction[]
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+
+  @@unique([periodId, employeeId])
+  @@index([employeeId])
+  @@map("hr_payslips")
+}
+
+model HrPayslipLine {
+  id          String    @id @default(uuid())
+  payslipId   String    @map("payslip_id")
+  payslip     HrPayslip @relation(fields: [payslipId], references: [id], onDelete: Cascade)
+  /** EARNING | DEDUCTION */
+  kind        String
+  code        String
+  label       String
+  labelFr     String?   @map("label_fr")
+  quantity    Decimal?  @db.Decimal(12, 2)
+  unit        String?
+  rate        Decimal?  @db.Decimal(14, 4)
+  amount      Decimal   @db.Decimal(14, 2)
+  sourceType  String?   @map("source_type")
+  sourceIds   String[]  @default([]) @map("source_ids")
+  explanation String
+  sortOrder   Int       @default(0) @map("sort_order")
+
+  @@index([payslipId])
+  @@map("hr_payslip_lines")
+}
+
+/** Actual money paid — separate from payroll calculation. Cash payments post once to the register. */
+model HrSalaryPayment {
+  id               String               @id @default(uuid())
+  payslipId        String               @map("payslip_id")
+  payslip          HrPayslip            @relation(fields: [payslipId], references: [id])
+  periodId         String               @map("period_id")
+  period           HrPayrollPeriod      @relation(fields: [periodId], references: [id])
+  employeeId       String               @map("employee_id")
+  employee         HrEmployee           @relation(fields: [employeeId], references: [id])
+  amount           Decimal              @db.Decimal(14, 2)
+  paidAt           DateTime             @map("paid_at")
+  paymentMethod    String               @map("payment_method")
+  cashRegisterId   String?              @map("cash_register_id")
+  cashRegister     CashRegister?        @relation(fields: [cashRegisterId], references: [id], onDelete: SetNull)
+  cashSessionId    String?              @map("cash_session_id")
+  cashSession      CashRegisterSession? @relation(fields: [cashSessionId], references: [id], onDelete: SetNull)
+  cashRegisterName String?              @map("cash_register_name")
+  reference        String?
+  notes            String?
+  /** POSTED | CANCELLED */
+  status           String               @default("POSTED")
+  idempotencyKey   String               @unique @map("idempotency_key")
+  paidById         String               @map("paid_by_id")
+  paidByName       String?              @map("paid_by_name")
+  cancelledAt      DateTime?            @map("cancelled_at")
+  cancelledById    String?              @map("cancelled_by_id")
+  cancelledByName  String?              @map("cancelled_by_name")
+  cancelReason     String?              @map("cancel_reason")
+  createdAt        DateTime             @default(now()) @map("created_at")
+
+  @@index([payslipId])
+  @@index([periodId])
+  @@index([employeeId, paidAt])
+  @@index([cashSessionId])
+  @@map("hr_salary_payments")
+}
+
+/** Other personnel costs. Salaries/advances/loans are NOT re-entered here (reported from their own tables). */
+model HrExpense {
+  id               String               @id @default(uuid())
+  category         String
+  amount           Decimal              @db.Decimal(14, 2)
+  date             DateTime             @db.Date
+  employeeId       String?              @map("employee_id")
+  employee         HrEmployee?          @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  description      String
+  paymentMethod    String               @map("payment_method")
+  cashRegisterId   String?              @map("cash_register_id")
+  cashRegister     CashRegister?        @relation(fields: [cashRegisterId], references: [id], onDelete: SetNull)
+  cashSessionId    String?              @map("cash_session_id")
+  cashSession      CashRegisterSession? @relation(fields: [cashSessionId], references: [id], onDelete: SetNull)
+  cashRegisterName String?              @map("cash_register_name")
+  reference        String?
+  /** POSTED | CANCELLED */
+  status           String               @default("POSTED")
+  idempotencyKey   String?              @unique @map("idempotency_key")
+  createdById      String?              @map("created_by_id")
+  createdByName    String?              @map("created_by_name")
+  cancelledAt      DateTime?            @map("cancelled_at")
+  cancelledById    String?              @map("cancelled_by_id")
+  cancelledByName  String?              @map("cancelled_by_name")
+  cancelReason     String?              @map("cancel_reason")
+  createdAt        DateTime             @default(now()) @map("created_at")
+  updatedAt        DateTime             @updatedAt @map("updated_at")
+
+  @@index([date])
+  @@index([category])
+  @@map("hr_expenses")
 }

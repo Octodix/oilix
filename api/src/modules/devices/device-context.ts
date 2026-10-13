@@ -1,9 +1,11 @@
 import { AsyncLocalStorage } from 'async_hooks';
 import type { Device, DeviceStatus, DeviceWorkspace } from '@prisma/client';
 
+export type WorkspaceHint = 'mill' | 'sales' | 'hr';
+
 export type DeviceContext = {
   device: Device | null;
-  workspace: 'mill' | 'sales' | null;
+  workspace: WorkspaceHint | null;
 };
 
 export const deviceAls = new AsyncLocalStorage<DeviceContext>();
@@ -16,7 +18,7 @@ export function currentDeviceId(): string | null {
   return currentDevice()?.id ?? null;
 }
 
-export function currentWorkspaceHint(): 'mill' | 'sales' | null {
+export function currentWorkspaceHint(): WorkspaceHint | null {
   return deviceAls.getStore()?.workspace ?? null;
 }
 
@@ -35,9 +37,9 @@ export const DEVICE_WORKSPACE_MESSAGE =
 
 export function workspaceMatches(
   deviceWorkspace: DeviceWorkspace,
-  requested: 'mill' | 'sales' | null,
+  requested: WorkspaceHint | null,
 ): boolean {
-  if (!requested) return true;
+  if (!requested || requested === 'hr') return true;
   if (deviceWorkspace === 'BOTH') return true;
   if (requested === 'sales') return deviceWorkspace === 'SALES';
   return deviceWorkspace === 'MILL';
@@ -79,7 +81,8 @@ export function isSensitiveWritePath(url: string, method: string) {
     path.includes('/pressing') ||
     path.includes('/payments') ||
     path.includes('/filtration') ||
-    path.includes('/mobile')
+    path.includes('/mobile') ||
+    path.includes('/api/v1/hr/')
   ) {
     return true;
   }
@@ -88,16 +91,18 @@ export function isSensitiveWritePath(url: string, method: string) {
 
 export function deviceWriteBlockReason(
   device: Device | null,
-  opts: { method: string; url: string; workspace: 'mill' | 'sales' | null },
+  opts: { method: string; url: string; workspace: WorkspaceHint | null },
 ): string | null {
   if (!isSensitiveWritePath(opts.url, opts.method)) return null;
   const salesWrite = isOilSalesWritePath(opts.url, opts.method);
   if (!device) {
     // Oil Sales terminals must be registered. Mill/mobile legacy rows stay nullable.
+    // Workspace access is enforced by user permissions — not device.workspace.
     return salesWrite ? DEVICE_REQUIRED_MESSAGE : null;
   }
   if (device.status === ('DISABLED' as DeviceStatus)) return DEVICE_DISABLED_MESSAGE;
   if (device.status === ('PENDING' as DeviceStatus)) return DEVICE_PENDING_MESSAGE;
-  if (!workspaceMatches(device.workspace, opts.workspace)) return DEVICE_WORKSPACE_MESSAGE;
+  // Device registration = FROM which device. User permissions = WHAT they can access.
+  void opts.workspace;
   return null;
 }

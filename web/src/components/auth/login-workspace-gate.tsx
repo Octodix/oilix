@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/lib/auth-store';
 import { canAccessWorkspace } from '@/lib/permission-catalog';
-import { useWorkspaceStore, workspaceHome, type WorkspaceId } from '@/lib/workspace-store';
+import { isWorkspaceId, useWorkspaceStore, workspaceHome, type WorkspaceId } from '@/lib/workspace-store';
 
 export function LoginWorkspaceGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -14,7 +14,7 @@ export function LoginWorkspaceGate({ children }: { children: React.ReactNode }) 
   const stored = useWorkspaceStore((s) => s.workspace);
   const setWorkspace = useWorkspaceStore((s) => s.setWorkspace);
   const q = sp.get('workspace');
-  const fromQuery = q === 'sales' || q === 'mill' ? (q as WorkspaceId) : null;
+  const fromQuery: WorkspaceId | null = isWorkspaceId(q) ? q : null;
   const workspace = fromQuery ?? stored;
 
   useEffect(() => {

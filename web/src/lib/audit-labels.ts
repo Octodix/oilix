@@ -17,6 +17,7 @@ export const AUDIT_MODULE_LABELS: Record<string, string> = {
   devices: 'الأجهزة',
   cash: 'الصناديق',
   filtration: 'التصفية',
+  hr: 'الموارد البشرية',
 };
 
 export const AUDIT_ACTION_LABELS: Record<string, string> = {

@@ -3,11 +3,14 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { Printer } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn, formatDateTimeDz } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuthStore } from '@/lib/auth-store';
+import { useDeviceMe } from '@/hooks/use-device-me';
+import { DevicePrinterSettings, PrintAgentBadge } from '@/components/devices/device-printer-settings';
 
 type Register = { id: string; code: string; name: string; isActive: boolean };
 type DeviceRow = {
@@ -51,6 +54,9 @@ export function DevicesAdmin({ workspace }: { workspace: 'mill' | 'sales' }) {
   const [ws, setWs] = useState<'SALES' | 'MILL' | 'BOTH'>(workspace === 'sales' ? 'SALES' : 'MILL');
   const [registerId, setRegisterId] = useState('');
   const [location, setLocation] = useState('');
+  const [printerDevice, setPrinterDevice] = useState<DeviceRow | null>(null);
+  const deviceMeQ = useDeviceMe();
+  const currentDeviceId = deviceMeQ.data?.device?.id ?? null;
 
   const listQ = useQuery({
     queryKey: ['devices'],
@@ -179,8 +185,29 @@ export function DevicesAdmin({ workspace }: { workspace: 'mill' | 'sales' }) {
   const rows = listQ.data ?? [];
   const saving = approveMut.isPending || updateMut.isPending;
 
+  const currentRow = rows.find((d) => d.id === currentDeviceId) ?? null;
+
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface)] px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="font-semibold">الطباعة المباشرة على هذا الجهاز:</span>
+          <PrintAgentBadge />
+        </div>
+        {currentRow ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="gap-2"
+            onClick={() => setPrinterDevice(currentRow)}
+          >
+            <Printer className="h-4 w-4" />
+            طابعات هذا الجهاز
+          </Button>
+        ) : null}
+      </div>
+
       <div className="overflow-x-auto rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface)]">
         <table className="w-full min-w-[720px] text-sm">
           <thead>
@@ -191,7 +218,7 @@ export function DevicesAdmin({ workspace }: { workspace: 'mill' | 'sales' }) {
               <th className="px-3 py-2 font-semibold">الحالة</th>
               <th className="px-3 py-2 font-semibold">الصندوق</th>
               <th className="px-3 py-2 font-semibold">آخر ظهور</th>
-              {canManage ? <th className="px-3 py-2 font-semibold">إجراءات</th> : null}
+              <th className="px-3 py-2 font-semibold">إجراءات</th>
             </tr>
           </thead>
           <tbody>
@@ -214,9 +241,35 @@ export function DevicesAdmin({ workspace }: { workspace: 'mill' | 'sales' }) {
                 <td className="px-3 py-2 text-xs">
                   {d.lastSeenAt ? formatDateTimeDz(d.lastSeenAt) : '—'}
                 </td>
+                {!canManage ? (
+                  <td className="px-3 py-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="gap-1"
+                      onClick={() => setPrinterDevice(d)}
+                    >
+                      <Printer className="h-3.5 w-3.5" />
+                      الطابعات
+                    </Button>
+                  </td>
+                ) : null}
                 {canManage ? (
                   <td className="px-3 py-2">
                     <div className="flex flex-wrap gap-2">
+                      {d.status !== 'PENDING' ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="gap-1"
+                          onClick={() => setPrinterDevice(d)}
+                        >
+                          <Printer className="h-3.5 w-3.5" />
+                          الطابعات
+                        </Button>
+                      ) : null}
                       {d.status === 'PENDING' ? (
                         <Button type="button" size="sm" variant="outline" onClick={() => pick(d)}>
                           اعتماد
@@ -388,6 +441,16 @@ export function DevicesAdmin({ workspace }: { workspace: 'mill' | 'sales' }) {
             </Button>
           </div>
         </form>
+      ) : null}
+
+      {printerDevice ? (
+        <DevicePrinterSettings
+          key={printerDevice.id}
+          device={printerDevice}
+          isCurrentDevice={printerDevice.id === currentDeviceId}
+          canManage={canManage}
+          onClose={() => setPrinterDevice(null)}
+        />
       ) : null}
     </div>
   );

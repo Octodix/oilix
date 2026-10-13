@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -6,13 +7,17 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { OilSource, OilType, Permission } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { RequirePermissions } from '../../common/decorators/permissions.decorator';
+import {
+  RequireAnyPermissions,
+  RequirePermissions,
+} from '../../common/decorators/permissions.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
@@ -35,6 +40,8 @@ import {
   OilSaleQueryDto,
   PreviewSaleDto,
   RecordDebtPaymentDto,
+  RecordOilDayReportPrintDto,
+  SaveOilSaleHoldDto,
   StockAdjustmentDto,
   UpdateOilContainerDto,
   UpdateOilCustomerDto,
@@ -310,6 +317,49 @@ export class OilSalesController {
     );
   }
 
+  @Get('sale-prices')
+  @RequireAnyPermissions(Permission.OIL_SALES_SALES_CREATE, Permission.OIL_SALES_CONTAINERS_SELL)
+  @ApiOperation({ summary: 'أسعار البيع المعتمدة (قراءة فقط لشاشة البيع)' })
+  async salePrices() {
+    const s = await this.oilSales.getSettings();
+    return {
+      priceGreen: s.priceGreen,
+      priceTaieb: s.priceTaieb,
+      priceDrou: s.priceDrou,
+      priceZebbouche: s.priceZebbouche,
+    };
+  }
+
+  @Get('holds')
+  @RequireAnyPermissions(Permission.OIL_SALES_SALES_CREATE, Permission.OIL_SALES_CONTAINERS_SELL)
+  @ApiOperation({ summary: 'قائمة البيوع المعلّقة (قائمة الانتظار)' })
+  holds(@CurrentUser() user: JwtPayload) {
+    return this.oilSales.listHolds(user);
+  }
+
+  @Post('holds')
+  @RequireAnyPermissions(Permission.OIL_SALES_SALES_CREATE, Permission.OIL_SALES_CONTAINERS_SELL)
+  @ApiOperation({ summary: 'تعليق بيع — بدون أي أثر على المخزون أو الصندوق' })
+  createHold(@Body() dto: SaveOilSaleHoldDto, @CurrentUser() user: JwtPayload) {
+    return this.oilSales.saveHold(dto, user);
+  }
+
+  @Put('holds/:id')
+  @RequireAnyPermissions(Permission.OIL_SALES_SALES_CREATE, Permission.OIL_SALES_CONTAINERS_SELL)
+  updateHold(
+    @Param('id') id: string,
+    @Body() dto: SaveOilSaleHoldDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.oilSales.saveHold(dto, user, id);
+  }
+
+  @Delete('holds/:id')
+  @RequireAnyPermissions(Permission.OIL_SALES_SALES_CREATE, Permission.OIL_SALES_CONTAINERS_SELL)
+  deleteHold(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.oilSales.deleteHold(id, user);
+  }
+
   @Get('sales/:id')
   @RequirePermissions(Permission.OIL_SALES_SALES_VIEW)
   sale(@Param('id') id: string) {
@@ -370,6 +420,9 @@ export class OilSalesController {
     @CurrentUser() user: JwtPayload,
   ) {
     const sale = await this.oilSales.findSale(id);
+    if (!sale.customerId) {
+      throw new BadRequestException('بيع زبون عابر — لا يوجد دين لتسديده');
+    }
     return this.debts.recordPayment(
       {
         customerId: sale.customerId,
@@ -388,6 +441,16 @@ export class OilSalesController {
   @RequirePermissions(Permission.OIL_SALES_REPORTS_VIEW)
   reports(@Query() query: OilReportQueryDto) {
     return this.oilSales.salesReport(query);
+  }
+
+  @Post('reports/day-print')
+  @RequirePermissions(Permission.OIL_SALES_REPORTS_VIEW)
+  @ApiOperation({ summary: 'تسجيل توليد يومية صندوق + بيانات الطباعة' })
+  recordDayPrint(
+    @Body() dto: RecordOilDayReportPrintDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.oilSales.recordDayReportPrint(dto, user.sub);
   }
 
   @Get('settings')

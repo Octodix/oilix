@@ -1,9 +1,9 @@
 'use client';
 
-import { FormEvent, useEffect, useId, useMemo, useState } from 'react';
+import { FormEvent, KeyboardEvent, useId, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Droplet, Plus, Printer, Search, Trash2, X } from 'lucide-react';
+import { Clock, Droplet, Lock, Pause, Play, Plus, Printer, Search, Trash2, UserRound, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import {
@@ -14,12 +14,26 @@ import {
   type OilSourceValue,
   type OilTypeValue,
 } from '@/lib/sales-nav';
-import { previewSaleFromLines, type DraftSaleLine } from '@/lib/sales-math';
+import { previewSaleFromLines } from '@/lib/sales-math';
+import {
+  WALK_IN_CUSTOMER_LABEL,
+  cartLineSubtotal,
+  cartToApiItems,
+  holdItemsToCartLines,
+  repriceCart,
+  resolveLinePrice,
+  type CartLine,
+  type HoldPayloadItem,
+  type PriceLocks,
+  type SalePrices,
+} from '@/lib/sales-cart';
 import { formatNumber, formatMoney, cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuthStore } from '@/lib/auth-store';
 import { openOilSaleClientReceipt } from '@/lib/oil-sale-receipt';
+import { useDirectPrint } from '@/hooks/use-direct-print';
+import { oilSaleClientReceiptRequest } from '@/lib/print-documents';
 import { useSeasonReadOnly } from '@/hooks/use-season-read-only';
 
 type Customer = { id: string; name: string; phone?: string | null; address?: string | null };
@@ -29,12 +43,6 @@ type StockRow = {
   theoreticalQty: number;
   physicalQty: number | null;
 };
-type Settings = {
-  priceGreen: number;
-  priceTaieb: number;
-  priceDrou: number;
-  priceZebbouche: number;
-};
 type Container = {
   id: string;
   name: string;
@@ -43,17 +51,56 @@ type Container = {
   unitPrice?: string | number | null;
   stock?: { available: number; theoreticalQty: number; minStock?: number };
 };
-
-type CartLine = DraftSaleLine & {
-  key: string;
-  oilSource?: OilSourceValue;
-  oilType?: OilTypeValue;
+type HoldRow = {
+  id: string;
+  holdNumber: number;
+  customerId: string | null;
+  customerName: string | null;
+  customerPhone: string | null;
+  payload: {
+    items: HoldPayloadItem[];
+    assistanceFixed?: number;
+    assistancePerLitre?: number;
+    notes?: string | null;
+  };
+  priceLocks: PriceLocks;
+  itemCount: number;
+  totalAmount: number;
+  createdByName: string | null;
+  cashRegisterName: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+type ActiveHold = { id: string; holdNumber: number; priceLocks: PriceLocks };
+type ApiError = {
+  response?: { status?: number; data?: { message?: string | string[]; code?: string } };
 };
 
 const LOW_STOCK_L = 20;
+const PRICES_KEY = ['oil-sale-prices'] as const;
+const HOLDS_KEY = ['oil-sale-holds'] as const;
+
+const fetchPrices = async () => (await api.get<SalePrices>('/oil-sales/sale-prices')).data;
+const fetchContainers = async () => (await api.get<Container[]>('/oil-sales/containers')).data;
 
 function availableQty(row: StockRow | undefined) {
   return row ? Number(row.theoreticalQty) || 0 : 0;
+}
+
+function apiMessage(e: ApiError, fallback: string) {
+  const msg = e.response?.data?.message;
+  return Array.isArray(msg) ? msg.join('\n') : msg || fallback;
+}
+
+function timeHm(iso: string) {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? ''
+    : d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+}
+
+function defaultZeroOnBlur(value: string, set: (v: string) => void) {
+  if (value.trim() === '' || !Number.isFinite(Number(value))) set('0');
 }
 
 export default function NewSalePage() {
@@ -67,10 +114,6 @@ export default function NewSalePage() {
     s.hasPermission('OIL_SALES_CONTAINER_STOCK_OVERRIDE'),
   );
   const canCustomer = useAuthStore((s) => s.hasPermission('OIL_SALES_CUSTOMERS_CREATE'));
-  const canChangePrice = useAuthStore((s) => s.hasPermission('OIL_SALES_SALES_CHANGE_PRICE'));
-  const canChangeContainerPrice = useAuthStore((s) =>
-    s.hasPermission('OIL_SALES_CONTAINERS_CHANGE_PRICE'),
-  );
   const canAssistFixed = useAuthStore((s) => s.hasPermission('OIL_SALES_ASSISTANCE_FIXED'));
   const canAssistPerLitre = useAuthStore((s) =>
     s.hasPermission('OIL_SALES_ASSISTANCE_PER_LITRE'),
@@ -85,12 +128,10 @@ export default function NewSalePage() {
   const [method, setMethod] = useState<'CONTAINER' | 'LOOSE' | 'CONTAINER_ONLY'>(
     canWrite ? 'LOOSE' : 'CONTAINER_ONLY',
   );
-  const [containerId, setContainerId] = useState('');
+  const [pickedContainerId, setContainerId] = useState('');
   const [containerCount, setContainerCount] = useState('1');
   const [looseQty, setLooseQty] = useState('');
   const [lines, setLines] = useState<CartLine[]>([]);
-  const [unitPrice, setUnitPrice] = useState('');
-  const [containerSellPrice, setContainerSellPrice] = useState('');
   const [assistanceFixed, setAssistanceFixed] = useState('0');
   const [assistancePerLitre, setAssistancePerLitre] = useState('0');
   const [notes, setNotes] = useState('');
@@ -103,21 +144,32 @@ export default function NewSalePage() {
   const [amountPaidNow, setAmountPaidNow] = useState('');
   const [newAddress, setNewAddress] = useState('');
   const [oilPanelOpen, setOilPanelOpen] = useState(false);
+  const [activeHold, setActiveHold] = useState<ActiveHold | null>(null);
+  const [lastSale, setLastSale] = useState<{ id: string; receiptNumber: number } | null>(null);
+  const [printedSaleIds, setPrintedSaleIds] = useState<Set<string>>(() => new Set());
   const uid = useId();
+  const { print: directPrint, busy: printing, settings: printSettings } = useDirectPrint();
 
-  const settingsQ = useQuery({
-    queryKey: ['oil-sales-settings'],
-    queryFn: async () => (await api.get<Settings>('/oil-sales/settings')).data,
-  });
+  function printReceipt(saleId: string, isReprint: boolean) {
+    setPrintedSaleIds((prev) => new Set(prev).add(saleId));
+    return directPrint(oilSaleClientReceiptRequest(saleId, { isReprint }), {
+      browserFallback: () => openOilSaleClientReceipt(saleId, { autoPrint: true }),
+    });
+  }
+
+  const pricesQ = useQuery({ queryKey: PRICES_KEY, queryFn: fetchPrices });
 
   const stockQ = useQuery({
     queryKey: ['oil-sales-stock'],
     queryFn: async () => (await api.get<StockRow[]>('/oil-sales/stock')).data,
   });
 
-  const containersQ = useQuery({
-    queryKey: ['oil-containers'],
-    queryFn: async () => (await api.get<Container[]>('/oil-sales/containers')).data,
+  const containersQ = useQuery({ queryKey: ['oil-containers'], queryFn: fetchContainers });
+
+  const holdsQ = useQuery({
+    queryKey: HOLDS_KEY,
+    queryFn: async () => (await api.get<HoldRow[]>('/oil-sales/holds')).data,
+    refetchInterval: 15_000,
   });
 
   const customersQ = useQuery({
@@ -147,31 +199,26 @@ export default function NewSalePage() {
   const stockAvailable = availableQty(stock);
   const sourceMeta = oilSourceMeta(oilSource);
   const meta = oilMeta(oilType);
-  const containers = containersQ.data ?? [];
+  const containers = useMemo(() => containersQ.data ?? [], [containersQ.data]);
+  const containerId = pickedContainerId || containers[0]?.id || '';
+  const holds = holdsQ.data ?? [];
+  const priceLocks = activeHold?.priceLocks ?? null;
 
-  useEffect(() => {
-    if (!settingsQ.data) return;
-    const prices: Record<OilTypeValue, number> = {
-      GREEN: settingsQ.data.priceGreen,
-      TAIEB: settingsQ.data.priceTaieb,
-      DROU: settingsQ.data.priceDrou,
-      ZEBBOUCHE: settingsQ.data.priceZebbouche,
-    };
-    setUnitPrice(String(prices[oilType]));
-  }, [settingsQ.data, oilType]);
-
-  useEffect(() => {
-    if (!containerId && containers[0]) setContainerId(containers[0].id);
-  }, [containers, containerId]);
-
-  useEffect(() => {
-    const c = containers.find((x) => x.id === containerId);
-    if (c?.unitPrice != null) setContainerSellPrice(String(c.unitPrice));
-  }, [containerId, containers]);
-
-  const price = Number(unitPrice);
-  const emptyPrice = Number(containerSellPrice);
   const selectedContainer = containers.find((c) => c.id === containerId);
+  /** Read-only price of the selected oil — captured into each line when it is added. */
+  const oilPrice = resolveLinePrice({ kind: 'LOOSE', oilType }, pricesQ.data, containers, priceLocks);
+  const oilPriceLocked =
+    priceLocks?.[`OIL:${oilType}`] != null &&
+    Number(priceLocks[`OIL:${oilType}`]) !==
+      resolveLinePrice({ kind: 'LOOSE', oilType }, pricesQ.data, containers, null);
+  const emptyPrice = selectedContainer
+    ? resolveLinePrice(
+        { kind: 'CONTAINER_ONLY', containerId: selectedContainer.id },
+        pricesQ.data,
+        containers,
+        priceLocks,
+      )
+    : null;
   const liveContainerLitres =
     selectedContainer && Number(containerCount) >= 1
       ? Number(selectedContainer.capacityL) * Number(containerCount)
@@ -181,20 +228,13 @@ export default function NewSalePage() {
     const key = `${uid}-draft`;
     if (method === 'LOOSE') {
       const qty = Number(looseQty);
-      if (!(qty > 0) || !(price >= 0)) return null;
-      return {
-        key,
-        kind: 'LOOSE',
-        oilSource,
-        oilType,
-        quantityL: qty,
-        unitPrice: price,
-      };
+      if (!(qty > 0) || oilPrice == null) return null;
+      return { key, kind: 'LOOSE', oilSource, oilType, quantityL: qty, unitPrice: oilPrice };
     }
     if (method === 'CONTAINER') {
       const c = selectedContainer;
       const count = Number(containerCount);
-      if (!c || !(count >= 1) || !(price >= 0)) return null;
+      if (!c || !(count >= 1) || oilPrice == null) return null;
       return {
         key,
         kind: 'CONTAINER',
@@ -204,91 +244,42 @@ export default function NewSalePage() {
         containerName: c.name,
         capacityL: Number(c.capacityL),
         containerCount: count,
-        unitPrice: price,
+        unitPrice: oilPrice,
       };
     }
-    if (method === 'CONTAINER_ONLY') {
-      const c = selectedContainer;
-      const count = Number(containerCount);
-      const sell = canChangeContainerPrice ? emptyPrice : Number(c?.unitPrice ?? 0);
-      if (!c || !(count >= 1) || !(sell >= 0)) return null;
-      if (c.unitPrice == null && !canChangeContainerPrice) return null;
-      return {
-        key,
-        kind: 'CONTAINER_ONLY',
-        containerId: c.id,
-        containerName: c.name,
-        capacityL: Number(c.capacityL),
-        containerCount: count,
-        unitPrice: sell,
-        containerPrice: sell,
-      };
-    }
-    return null;
-  }, [
-    method,
-    looseQty,
-    price,
-    oilSource,
-    oilType,
-    selectedContainer,
-    containerCount,
-    canChangeContainerPrice,
-    emptyPrice,
-    uid,
-  ]);
+    const c = selectedContainer;
+    const count = Number(containerCount);
+    if (!c || !(count >= 1) || emptyPrice == null) return null;
+    return {
+      key,
+      kind: 'CONTAINER_ONLY',
+      containerId: c.id,
+      containerName: c.name,
+      capacityL: Number(c.capacityL),
+      containerCount: count,
+      unitPrice: emptyPrice,
+      containerPrice: emptyPrice,
+    };
+  }, [method, looseQty, oilPrice, emptyPrice, oilSource, oilType, selectedContainer, containerCount, uid]);
 
-  const composedLines = useMemo(() => {
-    const cart = lines.map((l) => {
-      if (l.kind === 'CONTAINER_ONLY') {
-        return {
-          ...l,
-          unitPrice: canChangeContainerPrice ? emptyPrice || l.unitPrice : l.unitPrice,
-          containerPrice: canChangeContainerPrice
-            ? emptyPrice || l.containerPrice
-            : l.containerPrice,
-        };
-      }
-      return { ...l, unitPrice: canChangePrice ? price : l.unitPrice || price };
-    });
-    if (draftLine) {
-      const pricedDraft =
-        draftLine.kind === 'CONTAINER_ONLY'
-          ? draftLine
-          : {
-              ...draftLine,
-              unitPrice: canChangePrice ? price : draftLine.unitPrice || price,
-            };
-      return [...cart, pricedDraft];
-    }
-    return cart;
-  }, [lines, draftLine, canChangePrice, canChangeContainerPrice, price, emptyPrice]);
+  // Cart lines are never repriced from the currently selected oil.
+  const composedLines = useMemo(
+    () => (draftLine ? [...lines, draftLine] : lines),
+    [lines, draftLine],
+  );
 
   const preview = previewSaleFromLines(composedLines, {
     assistanceFixed: canAssistFixed ? Number(assistanceFixed || 0) : 0,
     assistancePerLitre: canAssistPerLitre ? Number(assistancePerLitre || 0) : 0,
   });
 
-  useEffect(() => {
-    if (!preview) {
-      setAmountPaidNow('');
-      return;
-    }
-    if (!canAllowDebt || paymentMode === 'full') {
-      setAmountPaidNow(String(preview.finalAmount));
-    } else if (paymentMode === 'later') {
-      setAmountPaidNow('0');
-    }
-  }, [preview?.finalAmount, paymentMode, canAllowDebt]);
-
+  const debtAllowedHere = canAllowDebt && !!customerId;
   const paidNow = preview
-    ? !canAllowDebt
+    ? !debtAllowedHere || paymentMode === 'full'
       ? preview.finalAmount
-      : paymentMode === 'full'
-        ? preview.finalAmount
-        : paymentMode === 'later'
-          ? 0
-          : Math.min(Math.max(0, Number(amountPaidNow || 0)), preview.finalAmount)
+      : paymentMode === 'later'
+        ? 0
+        : Math.min(Math.max(0, Number(amountPaidNow || 0)), preview.finalAmount)
     : 0;
   const remainingDebt = preview ? Math.max(0, preview.finalAmount - paidNow) : 0;
 
@@ -296,20 +287,16 @@ export default function NewSalePage() {
     () =>
       composedLines
         .filter((l) => l.kind !== 'CONTAINER_ONLY')
-        .filter((l) => (l.oilSource ?? oilSource) === oilSource && (l.oilType ?? oilType) === oilType)
+        .filter((l) => l.oilSource === oilSource && l.oilType === oilType)
         .reduce((s, l) => {
           if (l.kind === 'LOOSE') return s + Number(l.quantityL ?? 0);
-          if (l.kind === 'CONTAINER')
-            return s + Number(l.capacityL ?? 0) * Number(l.containerCount ?? 0);
-          return s;
+          return s + Number(l.capacityL ?? 0) * Number(l.containerCount ?? 0);
         }, 0),
     [composedLines, oilSource, oilType],
   );
 
   const qtyExceedsStock =
-    method !== 'CONTAINER_ONLY' &&
-    oilNeeded > stockAvailable + 1e-9 &&
-    !overrideStock;
+    method !== 'CONTAINER_ONLY' && oilNeeded > stockAvailable + 1e-9 && !overrideStock;
 
   const assistTooLarge = preview == null && composedLines.length > 0;
 
@@ -324,18 +311,22 @@ export default function NewSalePage() {
       ).data,
     onSuccess: (c) => {
       toast.success('تم إنشاء الزبون');
-      setCustomerId(c.id);
-      setSelectedCustomer(c);
-      setCustomerQ(c.name);
+      pickCustomer(c);
       setShowNewCustomer(false);
       setNewName('');
       setNewPhone('');
       setNewAddress('');
       void qc.invalidateQueries({ queryKey: ['oil-sales-customers'] });
     },
-    onError: (e: { response?: { data?: { message?: string } } }) =>
-      toast.error(e.response?.data?.message || 'تعذر إنشاء الزبون'),
+    onError: (e: ApiError) => toast.error(apiMessage(e, 'تعذر إنشاء الزبون')),
   });
+
+  function pickCustomer(c: Customer | null) {
+    setCustomerId(c?.id ?? '');
+    setSelectedCustomer(c);
+    setCustomerQ(c?.name ?? '');
+    if (!c) setPaymentMode('full');
+  }
 
   function selectOil(source: OilSourceValue, type: OilTypeValue) {
     if (method === 'CONTAINER_ONLY') return;
@@ -352,7 +343,11 @@ export default function NewSalePage() {
 
   function addLine() {
     if (!draftLine) {
-      if (method === 'LOOSE') toast.error('أدخل كمية اللترات');
+      if (method !== 'CONTAINER_ONLY' && oilPrice == null) {
+        toast.error('لا يوجد سعر بيع مضبوط لهذا الزيت — حدده من الإعدادات');
+      } else if (method === 'CONTAINER_ONLY' && selectedContainer && emptyPrice == null) {
+        toast.error('لا يوجد سعر بيع لهذا الضلف — حدده من صفحة الضلف');
+      } else if (method === 'LOOSE') toast.error('أدخل كمية اللترات');
       else if (method === 'CONTAINER_ONLY') toast.error('اختر الضلف والعدد');
       else toast.error('اختر التعبئة وعدد الضلف');
       return;
@@ -374,26 +369,107 @@ export default function NewSalePage() {
     else setContainerCount('1');
   }
 
+  function onQtyKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    addLine();
+  }
+
+  function resetForm() {
+    setLines([]);
+    setLooseQty('');
+    setContainerCount('1');
+    setAssistanceFixed('0');
+    setAssistancePerLitre('0');
+    setNotes('');
+    setOverrideStock(false);
+    setOverrideContainerStock(false);
+    setPaymentMode('full');
+    setAmountPaidNow('');
+    setShowNewCustomer(false);
+    pickCustomer(null);
+    setActiveHold(null);
+  }
+
+  function holdBody() {
+    return {
+      customerId: customerId || undefined,
+      items: cartToApiItems(composedLines),
+      assistanceFixed: canAssistFixed ? Number(assistanceFixed || 0) : 0,
+      assistancePerLitre: canAssistPerLitre ? Number(assistancePerLitre || 0) : 0,
+      notes: notes.trim() || undefined,
+    };
+  }
+
+  const saveHold = useMutation({
+    mutationFn: async () => {
+      const body = holdBody();
+      if (activeHold) {
+        try {
+          return (await api.put<HoldRow>(`/oil-sales/holds/${activeHold.id}`, body)).data;
+        } catch (e) {
+          if ((e as ApiError).response?.status !== 404) throw e;
+        }
+      }
+      return (await api.post<HoldRow>('/oil-sales/holds', body)).data;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: HOLDS_KEY });
+    },
+  });
+
+  async function putOnHold(opts?: { silent?: boolean }) {
+    if (!composedLines.length) {
+      if (!opts?.silent) toast.error('لا توجد أسطر لتعليقها');
+      return false;
+    }
+    try {
+      const h = await saveHold.mutateAsync();
+      resetForm();
+      toast.success(`تم تعليق البيع #${h.holdNumber}`);
+      return true;
+    } catch (e) {
+      toast.error(apiMessage(e as ApiError, 'تعذر تعليق البيع'));
+      return false;
+    }
+  }
+
+  async function resumeHold(h: HoldRow) {
+    if (activeHold?.id === h.id) return;
+    if (composedLines.length) {
+      const ok = await putOnHold({ silent: true });
+      if (!ok) return;
+    }
+    setLines(holdItemsToCartLines(h.payload.items ?? [], `${uid}-h${h.id}-${h.updatedAt}`));
+    pickCustomer(
+      h.customerId ? { id: h.customerId, name: h.customerName ?? '', phone: h.customerPhone } : null,
+    );
+    setAssistanceFixed(String(h.payload.assistanceFixed ?? 0));
+    setAssistancePerLitre(String(h.payload.assistancePerLitre ?? 0));
+    setNotes(h.payload.notes ?? '');
+    setLooseQty('');
+    setContainerCount('1');
+    setPaymentMode('full');
+    setActiveHold({ id: h.id, holdNumber: h.holdNumber, priceLocks: h.priceLocks ?? {} });
+  }
+
+  const deleteHold = useMutation({
+    mutationFn: async (id: string) => (await api.delete(`/oil-sales/holds/${id}`)).data,
+    onSuccess: (_r, id) => {
+      toast.success('تم حذف البيع المعلّق');
+      if (activeHold?.id === id) resetForm();
+      void qc.invalidateQueries({ queryKey: HOLDS_KEY });
+    },
+    onError: (e: ApiError) => toast.error(apiMessage(e, 'تعذر حذف البيع المعلّق')),
+  });
+
   const createSale = useMutation({
-    mutationFn: async (print: boolean) =>
+    mutationFn: async (_print: boolean) =>
       (
         await api.post('/oil-sales/sales', {
-          customerId,
-          oilSource: composedLines.some((l) => l.kind !== 'CONTAINER_ONLY')
-            ? oilSource
-            : undefined,
-          oilType: composedLines.some((l) => l.kind !== 'CONTAINER_ONLY') ? oilType : undefined,
-          items: composedLines.map((l) => ({
-            kind: l.kind,
-            oilSource: l.kind === 'CONTAINER_ONLY' ? undefined : (l.oilSource ?? oilSource),
-            oilType: l.kind === 'CONTAINER_ONLY' ? undefined : (l.oilType ?? oilType),
-            containerId: l.containerId,
-            containerCount: l.containerCount,
-            quantityL: l.kind === 'CONTAINER_ONLY' ? undefined : l.quantityL,
-            unitPrice: l.unitPrice,
-            containerPrice:
-              l.kind === 'CONTAINER_ONLY' ? (l.containerPrice ?? l.unitPrice) : l.containerPrice,
-          })),
+          customerId: customerId || undefined,
+          holdId: activeHold?.id,
+          items: cartToApiItems(composedLines),
           assistanceFixed: canAssistFixed ? Number(assistanceFixed || 0) : 0,
           assistancePerLitre: canAssistPerLitre ? Number(assistancePerLitre || 0) : 0,
           amountPaid: paidNow,
@@ -410,31 +486,31 @@ export default function NewSalePage() {
       void qc.invalidateQueries({ queryKey: ['oil-sales-list'] });
       void qc.invalidateQueries({ queryKey: ['oil-debts'] });
       void qc.invalidateQueries({ queryKey: ['oil-debts-summary'] });
-      if (print) openOilSaleClientReceipt(sale.id, { autoPrint: true });
-      setLines([]);
-      setLooseQty('');
-      setContainerCount('1');
-      setAssistanceFixed('0');
-      setAssistancePerLitre('0');
-      setNotes('');
-      setOverrideStock(false);
-      setOverrideContainerStock(false);
-      setPaymentMode('full');
-      setAmountPaidNow('');
+      void qc.invalidateQueries({ queryKey: HOLDS_KEY });
+      // The sale is committed; printing runs after and can never undo it.
+      resetForm();
+      setLastSale(sale);
+      if (canPrint && (print || printSettings.autoPrintAfterSale)) {
+        void printReceipt(sale.id, false);
+      }
     },
-    onError: (e: { response?: { data?: { message?: string | string[] } } }) => {
-      const msg = e.response?.data?.message;
-      toast.error(Array.isArray(msg) ? msg.join('\n') : msg || 'تعذر إتمام البيع');
+    onError: async (e: ApiError) => {
+      if (e.response?.status === 409 && e.response.data?.code === 'PRICE_CHANGED') {
+        const [freshPrices, freshContainers] = await Promise.all([
+          qc.fetchQuery({ queryKey: PRICES_KEY, queryFn: fetchPrices, staleTime: 0 }),
+          qc.fetchQuery({ queryKey: ['oil-containers'], queryFn: fetchContainers, staleTime: 0 }),
+        ]);
+        setLines((prev) => repriceCart(prev, freshPrices, freshContainers, priceLocks));
+        toast.warning(apiMessage(e, 'تغيّرت الأسعار — راجع المجموع ثم أعد المحاولة'));
+        return;
+      }
+      toast.error(apiMessage(e, 'تعذر إتمام البيع'));
     },
   });
 
   function onSubmit(e: FormEvent, print: boolean) {
     e.preventDefault();
     if (createSale.isPending) return;
-    if (!customerId) {
-      toast.error('اختر زبوناً');
-      return;
-    }
     if (!preview) {
       toast.error('أدخل الكمية وتحقق من المساعدة');
       return;
@@ -458,19 +534,6 @@ export default function NewSalePage() {
     createSale.mutate(print);
   }
 
-  function resetForm() {
-    setLines([]);
-    setLooseQty('');
-    setContainerCount('1');
-    setAssistanceFixed('0');
-    setAssistancePerLitre('0');
-    setNotes('');
-    setOverrideStock(false);
-    setOverrideContainerStock(false);
-    setPaymentMode('full');
-    setAmountPaidNow('');
-  }
-
   if ((!canWrite && !canSellContainers) || readOnly) {
     return (
       <div className="rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface)] p-8 text-center">
@@ -485,9 +548,11 @@ export default function NewSalePage() {
   const oilPanelDisabled = method === 'CONTAINER_ONLY';
   const showOilFields = method !== 'CONTAINER_ONLY';
   const emptyLineTotal =
-    method === 'CONTAINER_ONLY' && Number(containerCount) >= 1 && emptyPrice >= 0
+    method === 'CONTAINER_ONLY' && Number(containerCount) >= 1 && emptyPrice != null
       ? Number(containerCount) * emptyPrice
       : 0;
+  const busy = createSale.isPending || saveHold.isPending;
+  const oilPriceLabel = oilPrice == null ? 'غير مضبوط' : `${formatMoney(oilPrice)} د.ج`;
 
   const oilPanel = (
     <OilSelectionPanel
@@ -505,7 +570,9 @@ export default function NewSalePage() {
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
           <p className="text-xs font-bold text-amber-800 dark:text-amber-400">نقطة البيع</p>
-          <h1 className="text-2xl font-black">بيع جديد</h1>
+          <h1 className="text-2xl font-black">
+            {activeHold ? `استئناف البيع المعلّق #${activeHold.holdNumber}` : 'بيع جديد'}
+          </h1>
         </div>
         {cashQ.data?.session && cashQ.data.register ? (
           <p className="text-sm text-[var(--app-text-dim)]">
@@ -513,6 +580,14 @@ export default function NewSalePage() {
           </p>
         ) : null}
       </div>
+
+      <WaitingSales
+        holds={holds}
+        activeHoldId={activeHold?.id ?? null}
+        busy={busy || deleteHold.isPending}
+        onResume={(h) => void resumeHold(h)}
+        onDelete={(id) => deleteHold.mutate(id)}
+      />
 
       {/* Mobile oil picker */}
       {!oilPanelDisabled ? (
@@ -615,18 +690,29 @@ export default function NewSalePage() {
                 <button
                   type="button"
                   className="rounded-lg p-1.5 text-[var(--app-text-dim)] hover:bg-[var(--app-bg-muted)]"
-                  onClick={() => {
-                    setCustomerId('');
-                    setSelectedCustomer(null);
-                    setCustomerQ('');
-                  }}
-                  aria-label="تغيير الزبون"
+                  onClick={() => pickCustomer(null)}
+                  aria-label="الرجوع إلى زبون عابر"
+                  title="الرجوع إلى زبون عابر"
                 >
                   <X className="h-4 w-4" />
                 </button>
               </div>
             ) : (
               <>
+                <div className="flex items-center gap-2 rounded-xl border border-dashed border-[var(--app-border-strong)] bg-[var(--app-bg-muted)] px-3 py-2">
+                  <UserRound className="h-4 w-4 shrink-0 text-[var(--app-text-dim)]" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold">
+                      {WALK_IN_CUSTOMER_LABEL}{' '}
+                      <span className="text-xs font-medium text-[var(--app-text-dim)]">
+                        · Client comptoir
+                      </span>
+                    </p>
+                    <p className="text-[11px] text-[var(--app-text-dim)]">
+                      بيع مباشر بدون زبون — ابحث أدناه لاختيار زبون مسجّل (مطلوب للدين)
+                    </p>
+                  </div>
+                </div>
                 <div className="relative">
                   <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--app-text-dim)]" />
                   <input
@@ -645,11 +731,7 @@ export default function NewSalePage() {
                         <button
                           key={c.id}
                           type="button"
-                          onClick={() => {
-                            setCustomerId(c.id);
-                            setSelectedCustomer(c);
-                            setCustomerQ(c.name);
-                          }}
+                          onClick={() => pickCustomer(c)}
                           className="flex w-full items-center justify-between px-3 py-1.5 text-sm hover:bg-[var(--app-bg-muted)]"
                         >
                           <span className="font-bold">{c.name}</span>
@@ -695,9 +777,6 @@ export default function NewSalePage() {
                   </Button>
                 </div>
               </div>
-            ) : null}
-            {!customerId ? (
-              <p className="text-xs font-medium text-red-700 dark:text-red-400">اختر زبوناً للمتابعة</p>
             ) : null}
           </section>
 
@@ -772,6 +851,7 @@ export default function NewSalePage() {
                   inputMode="decimal"
                   value={looseQty}
                   onChange={(e) => setLooseQty(e.target.value)}
+                  onKeyDown={onQtyKeyDown}
                   error={
                     qtyExceedsStock
                       ? `تتجاوز المخزون (${formatNumber(stockAvailable, 1)} لتر)`
@@ -779,13 +859,10 @@ export default function NewSalePage() {
                   }
                   autoFocus
                 />
-                <Input
-                  id="sale-price"
+                <ReadOnlyPrice
                   label="سعر اللتر"
-                  inputMode="decimal"
-                  value={unitPrice}
-                  onChange={(e) => setUnitPrice(e.target.value)}
-                  disabled={!canChangePrice}
+                  value={oilPriceLabel}
+                  hint={oilPriceLocked ? 'سعر محفوظ من التعليق' : undefined}
                 />
                 {canAssistPerLitre ? (
                   <Input
@@ -794,6 +871,7 @@ export default function NewSalePage() {
                     inputMode="decimal"
                     value={assistancePerLitre}
                     onChange={(e) => setAssistancePerLitre(e.target.value)}
+                    onBlur={() => defaultZeroOnBlur(assistancePerLitre, setAssistancePerLitre)}
                     hint="دج / لتر"
                   />
                 ) : (
@@ -806,6 +884,7 @@ export default function NewSalePage() {
                     inputMode="decimal"
                     value={assistanceFixed}
                     onChange={(e) => setAssistanceFixed(e.target.value)}
+                    onBlur={() => defaultZeroOnBlur(assistanceFixed, setAssistanceFixed)}
                     hint="دج"
                   />
                 ) : (
@@ -847,13 +926,15 @@ export default function NewSalePage() {
                     inputMode="numeric"
                     value={containerCount}
                     onChange={(e) => setContainerCount(e.target.value)}
+                    onBlur={() => {
+                      if (!(Number(containerCount) >= 1)) setContainerCount('1');
+                    }}
+                    onKeyDown={onQtyKeyDown}
                   />
-                  <Input
+                  <ReadOnlyPrice
                     label="سعر اللتر"
-                    inputMode="decimal"
-                    value={unitPrice}
-                    onChange={(e) => setUnitPrice(e.target.value)}
-                    disabled={!canChangePrice}
+                    value={oilPriceLabel}
+                    hint={oilPriceLocked ? 'سعر محفوظ من التعليق' : undefined}
                   />
                   {canAssistPerLitre ? (
                     <Input
@@ -861,6 +942,7 @@ export default function NewSalePage() {
                       inputMode="decimal"
                       value={assistancePerLitre}
                       onChange={(e) => setAssistancePerLitre(e.target.value)}
+                      onBlur={() => defaultZeroOnBlur(assistancePerLitre, setAssistancePerLitre)}
                     />
                   ) : (
                     <div />
@@ -871,6 +953,7 @@ export default function NewSalePage() {
                       inputMode="decimal"
                       value={assistanceFixed}
                       onChange={(e) => setAssistanceFixed(e.target.value)}
+                      onBlur={() => defaultZeroOnBlur(assistanceFixed, setAssistanceFixed)}
                     />
                   ) : (
                     <div />
@@ -896,6 +979,12 @@ export default function NewSalePage() {
                   {containers.map((c) => {
                     const avail = c.stock?.available ?? 0;
                     const low = avail <= (c.stock?.minStock ?? 0);
+                    const p = resolveLinePrice(
+                      { kind: 'CONTAINER_ONLY', containerId: c.id },
+                      pricesQ.data,
+                      containers,
+                      priceLocks,
+                    );
                     return (
                       <button
                         key={c.id}
@@ -911,11 +1000,9 @@ export default function NewSalePage() {
                       >
                         <p className="font-bold">{c.name}</p>
                         <p className="text-xs tabular-nums">{avail} قطعة</p>
-                        {c.unitPrice != null ? (
-                          <p className="text-[11px]">
-                            {formatMoney(Number(c.unitPrice))} د.ج
-                          </p>
-                        ) : null}
+                        <p className="text-[11px]">
+                          {p != null ? `${formatMoney(p)} د.ج` : 'بدون سعر بيع'}
+                        </p>
                       </button>
                     );
                   })}
@@ -926,16 +1013,17 @@ export default function NewSalePage() {
                     inputMode="numeric"
                     value={containerCount}
                     onChange={(e) => setContainerCount(e.target.value)}
+                    onBlur={() => {
+                      if (!(Number(containerCount) >= 1)) setContainerCount('1');
+                    }}
+                    onKeyDown={onQtyKeyDown}
                   />
-                  <Input
-                    label="سعر القطعة (د.ج)"
-                    inputMode="decimal"
-                    value={containerSellPrice}
-                    onChange={(e) => setContainerSellPrice(e.target.value)}
-                    disabled={!canChangeContainerPrice}
+                  <ReadOnlyPrice
+                    label="سعر القطعة"
+                    value={emptyPrice == null ? 'غير مضبوط' : `${formatMoney(emptyPrice)} د.ج`}
                   />
                 </div>
-                {emptyLineTotal > 0 ? (
+                {emptyLineTotal > 0 && emptyPrice != null ? (
                   <p className="text-sm font-bold text-amber-900 dark:text-amber-300">
                     {containerCount} × {formatMoney(emptyPrice)} د.ج ={' '}
                     {formatMoney(emptyLineTotal)} د.ج — بدون زيت
@@ -956,10 +1044,13 @@ export default function NewSalePage() {
               </p>
             ) : null}
 
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button type="button" variant="outline" size="sm" className="gap-1" onClick={addLine}>
-                <Plus className="h-3.5 w-3.5" /> إضافة سطر آخر
+                <Plus className="h-3.5 w-3.5" /> إضافة سطر
               </Button>
+              <span className="text-[11px] text-[var(--app-text-dim)]">
+                Enter في خانة الكمية يضيف السطر
+              </span>
             </div>
 
             {lines.length > 0 ? (
@@ -969,21 +1060,38 @@ export default function NewSalePage() {
                     key={l.key}
                     className="flex items-center justify-between gap-2 px-3 py-2 text-sm"
                   >
-                    <span className="font-bold">
-                      {l.kind === 'CONTAINER'
-                        ? `${oilSourceMeta(l.oilSource ?? oilSource).emoji} ${oilMeta(l.oilType ?? oilType).shortLabel} · ${l.containerCount} × ${l.containerName} = ${formatNumber((l.capacityL ?? 0) * (l.containerCount ?? 0), 1)} لتر`
-                        : l.kind === 'CONTAINER_ONLY'
-                          ? `${l.containerCount} × ${l.containerName} = ${formatMoney((l.containerCount ?? 0) * l.unitPrice)} د.ج`
-                          : `${oilSourceMeta(l.oilSource ?? oilSource).emoji} ${oilMeta(l.oilType ?? oilType).shortLabel} · ${formatNumber(l.quantityL ?? 0, 1)} لتر`}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setLines((prev) => prev.filter((x) => x.key !== l.key))}
-                      className="rounded-lg p-1 text-red-600 hover:bg-red-50"
-                      aria-label="حذف السطر"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                    <div className="min-w-0">
+                      <p className="font-bold">
+                        {l.kind === 'CONTAINER_ONLY'
+                          ? `${l.containerName ?? 'ضلف'} — بدون زيت`
+                          : `${oilSourceMeta(l.oilSource ?? '').emoji} ${oilMeta(l.oilType ?? '').shortLabel}${
+                              l.kind === 'CONTAINER' ? ` · ${l.containerName ?? 'تعبئة'}` : ''
+                            }`}
+                      </p>
+                      <p className="text-xs tabular-nums text-[var(--app-text-dim)]">
+                        {l.kind === 'CONTAINER_ONLY'
+                          ? `${l.containerCount} × ${formatMoney(Number(l.containerPrice ?? l.unitPrice))} د.ج`
+                          : l.kind === 'CONTAINER'
+                            ? `${l.containerCount} × ${formatNumber(Number(l.capacityL ?? 0), 0)} لتر = ${formatNumber(
+                                Number(l.capacityL ?? 0) * Number(l.containerCount ?? 0),
+                                1,
+                              )} لتر × ${formatMoney(l.unitPrice)} د.ج`
+                            : `${formatNumber(Number(l.quantityL ?? 0), 1)} لتر × ${formatMoney(l.unitPrice)} د.ج`}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span className="font-black tabular-nums">
+                        {formatMoney(cartLineSubtotal(l))} د.ج
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setLines((prev) => prev.filter((x) => x.key !== l.key))}
+                        className="rounded-lg p-1 text-red-600 hover:bg-red-50"
+                        aria-label="حذف السطر"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -1046,40 +1154,58 @@ export default function NewSalePage() {
             <section className="space-y-3 rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface)] p-4">
               <h3 className="text-sm font-black">الدفع</h3>
               {canAllowDebt ? (
-                <div className="grid grid-cols-3 gap-2">
-                  {(
-                    [
-                      ['full', 'دفع كامل'],
-                      ['partial', 'دفع جزئي'],
-                      ['later', 'الدفع لاحقاً'],
-                    ] as const
-                  ).map(([mode, label]) => (
-                    <button
-                      key={mode}
-                      type="button"
-                      onClick={() => setPaymentMode(mode)}
-                      className={cn(
-                        'rounded-xl border px-2 py-2.5 text-sm font-bold',
-                        paymentMode === mode
-                          ? 'border-amber-700 bg-amber-50 text-amber-900'
-                          : 'border-[var(--app-border)]',
-                      )}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
+                <>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(
+                      [
+                        ['full', 'دفع كامل'],
+                        ['partial', 'دفع جزئي'],
+                        ['later', 'الدفع لاحقاً'],
+                      ] as const
+                    ).map(([mode, label]) => {
+                      const disabled = mode !== 'full' && !customerId;
+                      return (
+                        <button
+                          key={mode}
+                          type="button"
+                          disabled={disabled}
+                          onClick={() => {
+                            setPaymentMode(mode);
+                            if (mode === 'partial' && paymentMode !== 'partial') {
+                              setAmountPaidNow(String(preview.finalAmount));
+                            }
+                          }}
+                          className={cn(
+                            'rounded-xl border px-2 py-2.5 text-sm font-bold',
+                            paymentMode === mode
+                              ? 'border-amber-700 bg-amber-50 text-amber-900'
+                              : 'border-[var(--app-border)]',
+                            disabled && 'cursor-not-allowed opacity-40',
+                          )}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {!customerId ? (
+                    <p className="text-xs text-[var(--app-text-dim)]">
+                      الزبون العابر يدفع كامل المبلغ — اختر زبوناً مسجّلاً للبيع بالدين
+                    </p>
+                  ) : null}
+                </>
               ) : (
                 <p className="text-xs text-[var(--app-text-dim)]">
                   البيع نقداً بالكامل (لا صلاحية دين)
                 </p>
               )}
-              {canAllowDebt && paymentMode === 'partial' ? (
+              {debtAllowedHere && paymentMode === 'partial' ? (
                 <Input
                   label="المبلغ المدفوع الآن"
                   inputMode="decimal"
                   value={amountPaidNow}
                   onChange={(e) => setAmountPaidNow(e.target.value)}
+                  onBlur={() => defaultZeroOnBlur(amountPaidNow, setAmountPaidNow)}
                 />
               ) : null}
               <dl className="space-y-1.5 text-sm">
@@ -1099,9 +1225,6 @@ export default function NewSalePage() {
                   </span>
                 </div>
               </dl>
-              {remainingDebt > 0 && !customerId ? (
-                <p className="text-sm font-bold text-red-700">اختر زبوناً مسجّلاً لتسجيل الدين</p>
-              ) : null}
             </section>
           ) : null}
 
@@ -1129,13 +1252,36 @@ export default function NewSalePage() {
             </label>
           ) : null}
 
+          {lastSale && canPrint ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-600/25 bg-emerald-50 px-3 py-2 text-sm dark:bg-emerald-950/30">
+              <span>
+                آخر بيع: <strong className="tabular-nums">#{lastSale.receiptNumber}</strong>
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="gap-2"
+                disabled={printing}
+                onClick={() =>
+                  void printReceipt(lastSale.id, printedSaleIds.has(lastSale.id))
+                }
+              >
+                <Printer className="h-4 w-4" />
+                {printedSaleIds.has(lastSale.id)
+                  ? 'إعادة الطباعة · Réimprimer'
+                  : 'طباعة الوصل · Imprimer'}
+              </Button>
+            </div>
+          ) : null}
+
           {/* Actions */}
-          <div className="sticky bottom-2 z-10 grid gap-2 rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface)]/95 p-3 shadow-lg backdrop-blur sm:grid-cols-3">
+          <div className="sticky bottom-2 z-10 grid grid-cols-2 gap-2 rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface)]/95 p-3 shadow-lg backdrop-blur sm:grid-cols-4">
             <Button
               type="button"
-              className="gap-2 bg-amber-700 py-5 text-base hover:bg-amber-800 sm:col-span-1"
+              className="gap-2 bg-amber-700 py-5 text-base hover:bg-amber-800"
               loading={createSale.isPending}
-              disabled={!preview || !customerId || qtyExceedsStock}
+              disabled={!preview || qtyExceedsStock || busy}
               onClick={(e) => onSubmit(e as unknown as FormEvent, false)}
             >
               إتمام البيع
@@ -1146,21 +1292,157 @@ export default function NewSalePage() {
                 variant="outline"
                 className="gap-2 py-5 text-base"
                 loading={createSale.isPending}
-                disabled={!preview || !customerId || qtyExceedsStock}
+                disabled={!preview || qtyExceedsStock || busy}
                 onClick={(e) => onSubmit(e as unknown as FormEvent, true)}
               >
                 <Printer className="h-4 w-4" />
-                معاينة الطباعة
+                إتمام وطباعة
               </Button>
             ) : (
               <div className="hidden sm:block" />
             )}
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-2 border-amber-600/50 py-5 text-base text-amber-900 dark:text-amber-200"
+              loading={saveHold.isPending}
+              disabled={!composedLines.length || busy}
+              onClick={() => void putOnHold()}
+              title="Mettre en attente"
+            >
+              <Pause className="h-4 w-4" />
+              تعليق
+            </Button>
             <Button type="button" variant="ghost" className="py-5 text-base" onClick={resetForm}>
-              إلغاء
+              {activeHold ? 'إغلاق (يبقى معلّقاً)' : 'إلغاء'}
             </Button>
           </div>
         </div>
       </form>
+    </div>
+  );
+}
+
+function WaitingSales({
+  holds,
+  activeHoldId,
+  busy,
+  onResume,
+  onDelete,
+}: {
+  holds: HoldRow[];
+  activeHoldId: string | null;
+  busy: boolean;
+  onResume: (h: HoldRow) => void;
+  onDelete: (id: string) => void;
+}) {
+  const waiting = holds.length;
+  return (
+    <section
+      className={cn(
+        'rounded-2xl border p-3',
+        waiting > 0
+          ? 'border-amber-500/60 bg-amber-50/60 dark:bg-amber-950/20'
+          : 'border-[var(--app-border)] bg-[var(--app-surface)]',
+      )}
+      aria-label="البيوع المعلّقة"
+    >
+      <div className="flex items-center gap-2">
+        <Pause className="h-4 w-4 text-amber-700" />
+        <h2 className="text-sm font-black">
+          البيوع المعلّقة <span className="font-medium text-[var(--app-text-dim)]">· Ventes en attente</span>
+        </h2>
+        <span
+          className={cn(
+            'rounded-full px-2 py-0.5 text-xs font-black tabular-nums',
+            waiting > 0
+              ? 'bg-amber-600 text-white'
+              : 'bg-[var(--app-bg-muted)] text-[var(--app-text-dim)]',
+          )}
+        >
+          {waiting}
+        </span>
+      </div>
+      {waiting === 0 ? (
+        <p className="mt-1 text-xs text-[var(--app-text-dim)]">
+          لا توجد بيوع معلّقة — استعمل «تعليق» لخدمة زبون آخر دون فقدان البيع الحالي
+        </p>
+      ) : (
+        <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+          {holds.map((h) => {
+            const active = h.id === activeHoldId;
+            return (
+              <div
+                key={h.id}
+                className={cn(
+                  'min-w-[13rem] shrink-0 rounded-xl border bg-[var(--app-surface)] p-2.5 text-sm',
+                  active ? 'border-amber-700 ring-2 ring-amber-700/25' : 'border-[var(--app-border)]',
+                )}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-xs font-black">#{h.holdNumber}</span>
+                  <span className="flex items-center gap-1 text-[11px] tabular-nums text-[var(--app-text-dim)]">
+                    <Clock className="h-3 w-3" />
+                    {timeHm(h.createdAt)}
+                  </span>
+                </div>
+                <p className="mt-1 truncate font-bold">{h.customerName || WALK_IN_CUSTOMER_LABEL}</p>
+                <p className="truncate text-[11px] text-[var(--app-text-dim)]">
+                  {[h.createdByName, `${h.itemCount} سطر`].filter(Boolean).join(' · ')}
+                </p>
+                <p className="mt-1 text-base font-black tabular-nums">
+                  {formatMoney(h.totalAmount)} د.ج
+                </p>
+                <div className="mt-2 flex items-center gap-1.5">
+                  {active ? (
+                    <span className="flex-1 rounded-lg bg-amber-100 px-2 py-1 text-center text-xs font-bold text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">
+                      قيد التنفيذ
+                    </span>
+                  ) : (
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-8 flex-1 gap-1 bg-amber-700 hover:bg-amber-800"
+                      disabled={busy}
+                      onClick={() => onResume(h)}
+                      title="Reprendre"
+                    >
+                      <Play className="h-3.5 w-3.5" /> استئناف
+                    </Button>
+                  )}
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => onDelete(h.id)}
+                    className="rounded-lg p-1.5 text-red-600 hover:bg-red-50 disabled:opacity-40 dark:hover:bg-red-950/30"
+                    aria-label="حذف البيع المعلّق"
+                    title="Supprimer"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ReadOnlyPrice({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="space-y-2">
+      <p className="block text-sm font-semibold text-[var(--app-text-muted)]">{label}</p>
+      <div
+        className="flex items-center justify-between gap-2 rounded-xl border border-dashed border-[var(--app-border-strong)] bg-[var(--app-bg-muted)] px-[var(--space-input-x)] py-[var(--space-input-y)] text-sm font-black tabular-nums"
+        title="السعر يُحدَّد من إعدادات المنتجات فقط"
+        aria-readonly="true"
+      >
+        <span>{value}</span>
+        <Lock className="h-3.5 w-3.5 shrink-0 text-[var(--app-text-dim)]" />
+      </div>
+      <p className="text-xs text-[var(--app-text-dim)]">{hint ?? 'من إعدادات المنتجات'}</p>
     </div>
   );
 }

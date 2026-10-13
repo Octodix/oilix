@@ -1,15 +1,17 @@
 'use client';
 
-import { Eye, Printer, X } from 'lucide-react';
+import { Eye, Loader2, Printer, Send, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 type Props = {
   title: string;
   children: React.ReactNode;
+  /** Present when this workstation prints silently through the Oilix Print Agent. */
+  directPrint?: { busy: boolean; onPrint: () => void };
 };
 
 /** Cadre معاينة + طباعة 80mm (XPrinter) */
-export function ThermalPrintFrame({ title, children }: Props) {
+export function ThermalPrintFrame({ title, children, directPrint }: Props) {
   return (
     <>
       <div className="print-toolbar no-print sticky top-0 z-50 border-b border-stone-200 bg-white/95 backdrop-blur-md">
@@ -21,9 +23,23 @@ export function ThermalPrintFrame({ title, children }: Props) {
             </span>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button className="gap-2" onClick={() => window.print()}>
+            {directPrint ? (
+              <Button className="gap-2" disabled={directPrint.busy} onClick={directPrint.onPrint}>
+                {directPrint.busy ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+                طباعة مباشرة
+              </Button>
+            ) : null}
+            <Button
+              variant={directPrint ? 'outline' : 'primary'}
+              className="gap-2"
+              onClick={() => window.print()}
+            >
               <Printer className="h-4 w-4" />
-              طباعة
+              {directPrint ? 'طباعة عبر المتصفح' : 'طباعة'}
             </Button>
             <Button variant="outline" className="gap-2" onClick={() => window.close()}>
               <X className="h-4 w-4" />

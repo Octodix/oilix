@@ -3,12 +3,19 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Printer } from 'lucide-react';
+import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { OIL_SOURCES, OIL_TYPES, oilMeta, oilSourceMeta } from '@/lib/sales-nav';
 import { formatNumber, formatMoney } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useAuthStore } from '@/lib/auth-store';
+import { useDirectPrint } from '@/hooks/use-direct-print';
+import { loadDayReportForPrint } from '@/lib/oil-day-report-data';
+import { oilDayReportRequests } from '@/lib/print-documents';
+import { resolvePrinterRoute, targetForDocument } from '@/lib/print-plan';
+
+type CashRegister = { id: string; code: string; name: string; isActive?: boolean };
 
 type Report = {
   summary: {
@@ -162,9 +169,18 @@ export default function SalesReportsPage() {
   const [to, setTo] = useState(today);
   const [oilSource, setOilSource] = useState('');
   const [oilType, setOilType] = useState('');
+  const [cashRegisterId, setCashRegisterId] = useState('');
+  const [preparingReport, setPreparingReport] = useState(false);
+  const { print: directPrint, busy: printing, settings: printSettings } = useDirectPrint();
+
+  const registersQ = useQuery({
+    queryKey: ['oil-sales-cash-registers', 'all'],
+    queryFn: async () =>
+      (await api.get<CashRegister[]>('/oil-sales/cash/registers', { params: { all: '1' } })).data,
+  });
 
   const reportQ = useQuery({
-    queryKey: ['oil-sales-reports', from, to, oilSource, oilType],
+    queryKey: ['oil-sales-reports', from, to, oilSource, oilType, cashRegisterId],
     queryFn: async () =>
       (
         await api.get<Report>('/oil-sales/reports', {
@@ -173,6 +189,7 @@ export default function SalesReportsPage() {
             to: to || undefined,
             oilSource: oilSource || undefined,
             oilType: oilType || undefined,
+            cashRegisterId: cashRegisterId || undefined,
           },
         })
       ).data,
@@ -181,12 +198,47 @@ export default function SalesReportsPage() {
   const s = reportQ.data?.summary;
 
   function openDayReport(autoPrint = false) {
+    if (!cashRegisterId) {
+      toast.error('اختر الصندوق لطباعة اليومية');
+      return;
+    }
     const params = new URLSearchParams();
     params.set('from', from || today);
     params.set('to', to || from || today);
     params.set('date', from || today);
+    params.set('cashRegisterId', cashRegisterId);
     if (autoPrint) params.set('print', '1');
     window.open(`/oil-day-report?${params.toString()}`, '_blank', 'noopener');
+  }
+
+  async function printDayReport() {
+    if (!cashRegisterId) {
+      toast.error('اختر الصندوق لطباعة اليومية');
+      return;
+    }
+    const route = resolvePrinterRoute(
+      printSettings,
+      targetForDocument('OIL_DAY_REPORT', printSettings),
+    );
+    if (!route.direct) {
+      openDayReport(true);
+      return;
+    }
+    const q = { from: from || today, to: to || from || today, cashRegisterId };
+    let loaded: Awaited<ReturnType<typeof loadDayReportForPrint>>;
+    setPreparingReport(true);
+    try {
+      loaded = await loadDayReportForPrint(q);
+    } catch {
+      toast.error('تعذر تحميل اليومية');
+      return;
+    } finally {
+      setPreparingReport(false);
+    }
+    await directPrint(oilDayReportRequests(loaded.payload, loaded.meta.id, printSettings), {
+      browserFallback: () => openDayReport(true),
+      successMessage: 'تم إرسال اليومية للطابعة (نسختان) · Impression envoyée',
+    });
   }
 
   return (
@@ -207,7 +259,8 @@ export default function SalesReportsPage() {
             <Button
               type="button"
               className="gap-2 bg-amber-700 hover:bg-amber-800"
-              onClick={() => openDayReport(true)}
+              loading={preparingReport || printing}
+              onClick={() => void printDayReport()}
             >
               طباعة اليومية
             </Button>
@@ -215,9 +268,25 @@ export default function SalesReportsPage() {
         ) : null}
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
         <Input label="من" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
         <Input label="إلى" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+        <label className="block text-sm">
+          <span className="mb-1 block font-semibold text-[var(--app-text-muted)]">الصندوق</span>
+          <select
+            className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2.5"
+            value={cashRegisterId}
+            onChange={(e) => setCashRegisterId(e.target.value)}
+          >
+            <option value="">الكل (مجمّع)</option>
+            {(registersQ.data ?? []).map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name || r.code}
+                {r.isActive === false ? ' (متوقف)' : ''}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="block text-sm">
           <span className="mb-1 block font-semibold text-[var(--app-text-muted)]">المصدر</span>
           <select

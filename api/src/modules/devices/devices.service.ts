@@ -13,6 +13,7 @@ import {
   DEVICE_NAME_HEADER,
   DEVICE_WORKSPACE_HEADER,
   currentDevice,
+  type WorkspaceHint,
 } from './device-context';
 import { ApproveDeviceDto, DeviceQueryDto, UpdateDeviceDto } from './dto/devices.dto';
 
@@ -41,9 +42,9 @@ function headerStr(value: unknown): string | undefined {
   return undefined;
 }
 
-function parseWorkspaceHint(raw?: string): 'mill' | 'sales' | null {
+function parseWorkspaceHint(raw?: string): WorkspaceHint | null {
   const v = raw?.toLowerCase();
-  if (v === 'mill' || v === 'sales') return v;
+  if (v === 'mill' || v === 'sales' || v === 'hr') return v;
   return null;
 }
 
@@ -60,7 +61,7 @@ export class DevicesService {
     return raw.trim().toLowerCase();
   }
 
-  workspaceHintFromRequest(req: { headers?: Record<string, unknown> }): 'mill' | 'sales' | null {
+  workspaceHintFromRequest(req: { headers?: Record<string, unknown> }): WorkspaceHint | null {
     return parseWorkspaceHint(headerStr(req.headers?.[DEVICE_WORKSPACE_HEADER]));
   }
 

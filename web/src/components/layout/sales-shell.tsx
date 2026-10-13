@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import { Leaf, Menu } from 'lucide-react';
 import { SalesSidebar } from './sales-sidebar';
 import { ModuleSwitcher } from './module-switcher';
@@ -11,27 +12,42 @@ import { ThemeToggle } from '@/components/theme/theme-toggle';
 import { FullscreenToggle } from '@/components/layout/fullscreen-toggle';
 import { LogoutButton } from '@/components/layout/logout-button';
 import { DeviceStatusBanner } from '@/components/devices/device-status-banner';
-import { useAuthStore } from '@/lib/auth-store';
+import { api } from '@/lib/api';
+import { useAuthHydrated, useAuthStore } from '@/lib/auth-store';
 import { canAccessWorkspace } from '@/lib/permission-catalog';
 import { useWorkspaceStore, workspaceLoginPath } from '@/lib/workspace-store';
 import { SALES_BRAND } from '@/lib/sales-nav';
 import { formatDateShortDz, formatTimeDz } from '@/lib/locale-dz';
 
+type CashCurrent = {
+  device: { code: string | null; name: string; status: string } | null;
+  register: { id: string; code: string; name: string } | null;
+  session: unknown | null;
+};
+
 export function SalesShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const token = useAuthStore((s) => s.token);
   const user = useAuthStore((s) => s.user);
+  const hydrated = useAuthHydrated();
   const setWorkspace = useWorkspaceStore((s) => s.setWorkspace);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [now, setNow] = useState<Date | null>(null);
+
+  const cashCurrentQ = useQuery({
+    queryKey: ['oil-sales-cash-current'],
+    enabled: Boolean(token),
+    queryFn: async () => (await api.get<CashCurrent>('/oil-sales/cash/current')).data,
+    refetchInterval: 30_000,
+  });
 
   useEffect(() => {
     setWorkspace('sales');
   }, [setWorkspace]);
 
   useEffect(() => {
-    if (!token) router.replace(workspaceLoginPath('sales'));
-  }, [token, router]);
+    if (hydrated && !token) router.replace(workspaceLoginPath('sales'));
+  }, [hydrated, token, router]);
 
   useEffect(() => {
     if (token && user && !canAccessWorkspace(user.permissions, 'sales', user.role)) {
@@ -40,9 +56,12 @@ export function SalesShell({ children }: { children: React.ReactNode }) {
   }, [token, user, router]);
 
   useEffect(() => {
-    setNow(new Date());
+    const first = setTimeout(() => setNow(new Date()), 0);
     const t = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(t);
+    return () => {
+      clearTimeout(first);
+      clearInterval(t);
+    };
   }, []);
 
   if (!token) {
@@ -55,6 +74,17 @@ export function SalesShell({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
+
+  const userName = user?.firstName || user?.username || '—';
+  const registerLabel =
+    cashCurrentQ.data?.register?.name ||
+    cashCurrentQ.data?.register?.code ||
+    '—';
+  const deviceLabel =
+    cashCurrentQ.data?.device?.name ||
+    cashCurrentQ.data?.device?.code ||
+    '—';
+  const contextStrip = `${userName} · ${registerLabel} · ${deviceLabel}`;
 
   return (
     <div className="app-shell flex flex-col">
@@ -76,15 +106,24 @@ export function SalesShell({ children }: { children: React.ReactNode }) {
               <div className="hidden min-w-0 flex-1 items-center gap-3 lg:flex">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-bold text-[var(--app-text)]">
-                    {SALES_BRAND.tagline} · {user?.firstName || user?.username}
+                    {SALES_BRAND.tagline}
                   </p>
-                  <p className="truncate text-xs text-amber-800/80 dark:text-amber-400/80">
-                    وحدة مستقلة عن إدارة المعصرة
+                  <p
+                    className="truncate text-xs text-amber-800/90 dark:text-amber-400/90"
+                    title="المستخدم · الصندوق · الجهاز"
+                  >
+                    {contextStrip}
                   </p>
                 </div>
               </div>
 
-              <div className="flex flex-1 items-center justify-end gap-2">
+              <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+                <p
+                  className="min-w-0 truncate text-[11px] font-semibold text-amber-900/90 dark:text-amber-300/90 lg:hidden"
+                  title={contextStrip}
+                >
+                  {contextStrip}
+                </p>
                 <ModuleSwitcher compact className="hidden sm:inline-flex" />
                 <SeasonPicker className="hidden shrink-0 sm:block" />
                 {now ? (

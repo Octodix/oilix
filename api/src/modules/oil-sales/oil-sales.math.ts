@@ -209,6 +209,7 @@ export const SALE_CALC_ERROR_AR: Record<string, string> = {
   INVALID_CONTAINER: 'تعبئة غير صالحة — تحقق من السعة وعدد الضلف',
   EMPTY_LINES: 'أضف سطراً واحداً على الأقل للبيع',
   INVALID_CONTAINER_QTY: 'عدد الضلف يجب أن يكون عدداً صحيحاً أكبر من صفر',
+  PRICE_NOT_CONFIGURED: 'لا يوجد سعر بيع مضبوط لهذا المنتج — حدده من إعدادات المنتجات',
 };
 
 export type SaleLineKind = 'CONTAINER' | 'LOOSE' | 'CONTAINER_ONLY';
@@ -321,6 +322,84 @@ export function computeSaleFromLines(
     assistancePerLitre: assistance?.assistancePerLitre,
   });
   return { ...rest, quantityL, lines: resolved };
+}
+
+export type SaleOilShare = {
+  oilSource: string;
+  oilType: string;
+  litres: number;
+  gross: number;
+  assistance: number;
+  net: number;
+};
+
+/**
+ * Splits one finalized sale into per-oil shares using its line snapshots.
+ * Per-litre assistance follows litres; fixed/percent assistance follows each line's
+ * share of the sale gross (empty-container revenue keeps its own share, unreported here).
+ * Legacy sales without items fall back to the header oil.
+ */
+export function splitSaleByOil(sale: {
+  oilSource?: string | null;
+  oilType?: string | null;
+  quantityL: number;
+  grossAmount: number;
+  totalAssistance: number;
+  assistancePerLitreTotal: number;
+  items?: Array<{
+    oilSource?: string | null;
+    oilType?: string | null;
+    quantityL: number;
+    lineGross: number;
+  }>;
+}): SaleOilShare[] {
+  const gross = Number(sale.grossAmount) || 0;
+  const perLitreTotal = Number(sale.assistancePerLitreTotal) || 0;
+  const otherAssistance = Math.max(0, (Number(sale.totalAssistance) || 0) - perLitreTotal);
+
+  const oilLines = (sale.items?.length
+    ? sale.items
+    : sale.oilSource && sale.oilType
+      ? [
+          {
+            oilSource: sale.oilSource,
+            oilType: sale.oilType,
+            quantityL: Number(sale.quantityL) || 0,
+            lineGross: gross,
+          },
+        ]
+      : []
+  ).filter((l) => l.oilSource && l.oilType && Number(l.quantityL) > 0);
+
+  const totalLitres = oilLines.reduce((s, l) => s + Number(l.quantityL), 0);
+  const byKey = new Map<string, SaleOilShare>();
+  for (const l of oilLines) {
+    const litres = Number(l.quantityL);
+    const lineGross = Number(l.lineGross) || 0;
+    const assistance =
+      (totalLitres > 0 ? (perLitreTotal * litres) / totalLitres : 0) +
+      (gross > 0 ? (otherAssistance * lineGross) / gross : 0);
+    const key = `${l.oilSource}:${l.oilType}`;
+    const cur = byKey.get(key) ?? {
+      oilSource: l.oilSource as string,
+      oilType: l.oilType as string,
+      litres: 0,
+      gross: 0,
+      assistance: 0,
+      net: 0,
+    };
+    cur.litres += litres;
+    cur.gross += lineGross;
+    cur.assistance += assistance;
+    byKey.set(key, cur);
+  }
+  return [...byKey.values()].map((s) => ({
+    ...s,
+    litres: roundMoney(s.litres),
+    gross: roundMoney(s.gross),
+    assistance: roundMoney(s.assistance),
+    net: roundMoney(s.gross - s.assistance),
+  }));
 }
 
 export type ContainerStockSummary = {

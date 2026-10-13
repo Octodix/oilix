@@ -78,9 +78,20 @@ describe('device write policy', () => {
     ).toBe(DEVICE_PENDING_MESSAGE);
   });
 
+  it('does not block sales writes when device workspace is MILL (user permissions decide workspace)', () => {
+    expect(
+      deviceWriteBlockReason(device({ workspace: 'MILL', status: 'ACTIVE' }), {
+        method: 'POST',
+        url: '/api/v1/oil-sales/sales',
+        workspace: 'sales',
+      }),
+    ).toBeNull();
+  });
+
   it('allows mill-only device on mill writes', () => {
     expect(workspaceMatches('MILL', 'mill')).toBe(true);
     expect(workspaceMatches('SALES', 'mill')).toBe(false);
     expect(workspaceMatches('BOTH', 'sales')).toBe(true);
+    expect(workspaceMatches('SALES', 'hr')).toBe(true);
   });
 });

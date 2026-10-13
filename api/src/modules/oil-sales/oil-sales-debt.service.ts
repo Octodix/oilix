@@ -72,6 +72,7 @@ export class OilSalesDebtService {
       by: ['customerId'],
       where: {
         seasonId,
+        customerId: { not: null },
         status: OilSaleStatus.COMPLETED,
         remainingAmount: { gt: 0 },
       },
@@ -117,6 +118,7 @@ export class OilSalesDebtService {
       by: ['customerId'],
       where: {
         seasonId,
+        customerId: { not: null },
         status: OilSaleStatus.COMPLETED,
         remainingAmount: { gt: 0 },
       },
@@ -126,7 +128,9 @@ export class OilSalesDebtService {
       _max: { saleDate: true },
     });
 
-    const ids = groups.map((g) => g.customerId);
+    const ids = groups
+      .map((g) => g.customerId)
+      .filter((id): id is string => id != null);
     if (!ids.length) return [];
 
     const customers = await this.prisma.oilSaleCustomer.findMany({
@@ -258,6 +262,14 @@ export class OilSalesDebtService {
     if (!customer) throw new NotFoundException('الزبون غير موجود');
 
     const device = this.cashRegisters.requireSalesDevice({ requireCashRegister: false });
+    const operator = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: this.userSelect,
+    });
+    const operatorName =
+      [operator?.firstName, operator?.lastName].filter(Boolean).join(' ').trim() ||
+      operator?.username ||
+      null;
 
     const result = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`oil-debt:${seasonId}:${dto.customerId}`}))`;
@@ -344,6 +356,8 @@ export class OilSalesDebtService {
           reference: dto.reference?.trim() || null,
           notes: dto.notes?.trim() || null,
           userId,
+          userName: operatorName,
+          userUsername: operator?.username ?? null,
           deviceId: device.id,
           cashRegisterId: session?.cashRegisterId ?? device.cashRegisterId ?? null,
           cashSessionId: session?.id ?? null,

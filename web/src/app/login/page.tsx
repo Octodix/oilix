@@ -21,10 +21,41 @@ const SALES_FEATURES = [
   { icon: Shield, text: 'صلاحيات دقيقة لكل عملية' },
 ];
 
+const HR_FEATURES = [
+  { icon: Leaf, text: 'ملفات العمال والعقود' },
+  { icon: TrendingUp, text: 'الحضور بالبصمة والأجور' },
+  { icon: Shield, text: 'صلاحيات دقيقة وسجل تدقيق' },
+];
+
+const COPY = {
+  mill: {
+    badge: 'أوليكس · نظام المعصرة',
+    intro: 'منصة حديثة لإدارة الاستقبال، المعالجة، والتصفية — كل ما تحتاجه معصرتك في مكان واحد.',
+    footer: 'إدارة معصرة الزيتون',
+    logo: '🫒',
+    subtitle: 'الدخول إلى إدارة المعصرة',
+  },
+  sales: {
+    badge: 'أوليكس · بيع الزيت',
+    intro: 'نقطة بيع الزيت، المخزون، الزبائن والتقارير — مساحة مستقلة عن إدارة المعصرة.',
+    footer: 'بيع الزيت',
+    logo: '🛢️',
+    subtitle: 'الدخول إلى مساحة بيع الزيت',
+  },
+  hr: {
+    badge: 'أوليكس · الموارد البشرية',
+    intro: 'العمال، التوقيت، الحضور بجهاز البصمة، العطل، التسبيقات والأجور — Ressources Humaines.',
+    footer: 'الموارد البشرية',
+    logo: '👷',
+    subtitle: 'الدخول إلى إدارة العمال',
+  },
+} as const;
+
 function LoginInner() {
   const workspace = useWorkspaceStore((s) => s.workspace);
-  const sales = workspace === 'sales';
-  const features = sales ? SALES_FEATURES : MILL_FEATURES;
+  const ws = workspace === 'sales' || workspace === 'hr' ? workspace : 'mill';
+  const copy = COPY[ws];
+  const features = ws === 'sales' ? SALES_FEATURES : ws === 'hr' ? HR_FEATURES : MILL_FEATURES;
 
   return (
     <div className="login-page relative flex min-h-screen flex-col lg:flex-row">
@@ -42,15 +73,13 @@ function LoginInner() {
         <div className="login-hero-enter relative z-10">
           <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-1.5 text-sm font-medium text-emerald-100 backdrop-blur-md">
             <Sparkles className="h-4 w-4 text-amber-300" />
-            {sales ? 'أوليكس · بيع الزيت' : 'أوليكس · نظام المعصرة'}
+            {copy.badge}
           </div>
           <h1 className="max-w-lg text-3xl font-black leading-tight text-white md:text-4xl lg:text-[2.75rem]">
             {BUSINESS_NAME}
           </h1>
           <p className="mt-4 max-w-md text-base leading-relaxed text-emerald-100/85">
-            {sales
-              ? 'نقطة بيع الزيت، المخزون، الزبائن والتقارير — مساحة مستقلة عن إدارة المعصرة.'
-              : 'منصة حديثة لإدارة الاستقبال، المعالجة، والتصفية — كل ما تحتاجه معصرتك في مكان واحد.'}
+            {copy.intro}
           </p>
         </div>
 
@@ -69,7 +98,7 @@ function LoginInner() {
         </ul>
 
         <p className="login-footer-enter relative z-10 mt-8 text-xs text-emerald-200/50 lg:mt-0">
-          © {new Date().getFullYear()} Oilix — {sales ? 'بيع الزيت' : 'إدارة معصرة الزيتون'}
+          © {new Date().getFullYear()} Oilix — {copy.footer}
         </p>
       </aside>
 
@@ -79,11 +108,11 @@ function LoginInner() {
         <div className="login-card-enter relative z-10 mx-auto w-full max-w-sm">
           <div className="mb-8 text-center lg:text-right">
             <div className="login-logo mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 text-3xl shadow-lg shadow-emerald-500/30 lg:mx-0">
-              {sales ? '🛢️' : '🫒'}
+              {copy.logo}
             </div>
             <h2 className="text-2xl font-black text-[var(--app-text)]">تسجيل الدخول</h2>
             <p className="mt-2 text-sm text-[var(--app-text-dim)]">
-              {sales ? 'الدخول إلى مساحة بيع الزيت' : 'الدخول إلى إدارة المعصرة'}
+              {copy.subtitle}
             </p>
           </div>
 

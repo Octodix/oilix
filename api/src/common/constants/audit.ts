@@ -16,6 +16,7 @@ export const AUDIT_MODULES = {
   SETTINGS: 'settings',
   SEASONS: 'seasons',
   REPORTS: 'reports',
+  HR: 'hr',
   SYSTEM: 'system',
 } as const;
 
@@ -40,6 +41,15 @@ export const AUDIT_ACTIONS = {
   VIEW_ARCHIVE: 'VIEW_ARCHIVE',
   CLOSE_SEASON: 'CLOSE_SEASON',
   RESET_PASSWORD: 'RESET_PASSWORD',
+  APPROVE: 'APPROVE',
+  REJECT: 'REJECT',
+  CORRECT: 'CORRECT',
+  ARCHIVE: 'ARCHIVE',
+  SYNC: 'SYNC',
+  IMPORT: 'IMPORT',
+  CALCULATE: 'CALCULATE',
+  REOPEN: 'REOPEN',
+  CLOSE: 'CLOSE',
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

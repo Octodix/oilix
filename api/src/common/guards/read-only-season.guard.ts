@@ -16,6 +16,8 @@ const MUTATION_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const WRITE_WHITELIST_PREFIXES = [
   '/api/v1/auth',
   '/api/v1/settings/purge-database',
+  // HR is not season-scoped: payroll and attendance continue between olive seasons.
+  '/api/v1/hr',
 ];
 
 function isWriteWhitelisted(path: string): boolean {

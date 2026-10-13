@@ -3,37 +3,16 @@
 import { Suspense, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
-import {
-  OilDayReportDocument,
-  buildOilDayReportPayload,
-} from '@/components/print/oil-day-report-document';
+import { OilDayReportPrintCopies } from '@/components/print/oil-day-report-document';
 import { ThermalPrintFrame } from '@/components/print/thermal-print-frame';
 import { Button } from '@/components/ui/button';
-
-type Report = {
-  summary: { net: number };
-  byBucket?: Array<{
-    oilSource: string;
-    oilType: string;
-    litres: number;
-    gross: number;
-    assistance: number;
-    net: number;
-    stock: {
-      totalAdded: number;
-      theoreticalQty: number;
-      physicalQty: number | null;
-      lossQty: number;
-    } | null;
-  }>;
-};
-
-function formatDayLabel(iso: string) {
-  const [y, m, d] = iso.split('-');
-  if (!y || !m || !d) return iso;
-  return `${d}-${m}-${y}`;
-}
+import {
+  buildDayReportPrintPayload,
+  fetchDayReport,
+  registerDayReportPrint,
+} from '@/lib/oil-day-report-data';
+import { useDirectPrint } from '@/hooks/use-direct-print';
+import { oilDayReportRequests } from '@/lib/print-documents';
 
 function todayIso() {
   const n = new Date();
@@ -63,23 +42,28 @@ function OilDayReportBody() {
   const date = searchParams.get('date') || todayIso();
   const from = searchParams.get('from') || date;
   const to = searchParams.get('to') || date;
+  const cashRegisterId = searchParams.get('cashRegisterId')?.trim() || '';
 
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ['oil-day-report', from, to],
-    queryFn: async () =>
-      (
-        await api.get<Report>('/oil-sales/reports', {
-          params: { from, to },
-        })
-      ).data,
+  const reportQ = useQuery({
+    queryKey: ['oil-day-report', from, to, cashRegisterId],
+    enabled: Boolean(cashRegisterId),
+    queryFn: () => fetchDayReport({ from, to, cashRegisterId }),
+  });
+
+  const printMetaQ = useQuery({
+    queryKey: ['oil-day-report-day-print', from, to, cashRegisterId],
+    enabled: Boolean(cashRegisterId),
+    staleTime: Infinity,
+    retry: false,
+    queryFn: () => registerDayReportPrint({ from, to, cashRegisterId }),
   });
 
   const payload = useMemo(() => {
-    if (!data) return null;
-    const label =
-      from === to ? formatDayLabel(from) : `${formatDayLabel(from)} → ${formatDayLabel(to)}`;
-    return buildOilDayReportPayload(data, label);
-  }, [data, from, to]);
+    if (!reportQ.data || !printMetaQ.data) return null;
+    return buildDayReportPrintPayload(reportQ.data, printMetaQ.data, from, to);
+  }, [reportQ.data, printMetaQ.data, from, to]);
+
+  const { print, busy, settings } = useDirectPrint();
 
   useEffect(() => {
     if (payload) document.title = `يومية بيع الزيت ${payload.dateLabel}`;
@@ -91,7 +75,19 @@ function OilDayReportBody() {
     return () => window.clearTimeout(t);
   }, [autoPrint, payload]);
 
-  if (isLoading) {
+  if (!cashRegisterId) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-stone-100 p-8 text-center">
+        <p className="text-lg font-bold text-red-600">يجب تحديد الصندوق (cashRegisterId)</p>
+        <p className="text-sm text-stone-500">اختر صندوقاً من صفحة التقارير ثم افتح اليومية.</p>
+        <Button variant="outline" onClick={() => window.close()}>
+          إغلاق
+        </Button>
+      </div>
+    );
+  }
+
+  if (reportQ.isLoading || printMetaQ.isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-stone-100 text-stone-500">
         جاري تحميل اليومية...
@@ -99,7 +95,7 @@ function OilDayReportBody() {
     );
   }
 
-  if (isError || !payload) {
+  if (reportQ.isError || printMetaQ.isError || !payload) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-stone-100 p-8 text-center">
         <p className="text-lg font-bold text-red-600">تعذر تحميل اليومية</p>
@@ -110,9 +106,23 @@ function OilDayReportBody() {
     );
   }
 
+  const metaId = printMetaQ.data?.id;
   return (
-    <ThermalPrintFrame title={`يومية بيع الزيت · ${payload.dateLabel}`}>
-      <OilDayReportDocument data={payload} />
+    <ThermalPrintFrame
+      title={`يومية بيع الزيت · ${payload.dateLabel}`}
+      directPrint={
+        settings.directPrinting && metaId
+          ? {
+              busy,
+              onPrint: () =>
+                void print(oilDayReportRequests(payload, metaId, settings), {
+                  browserFallback: () => window.print(),
+                }),
+            }
+          : undefined
+      }
+    >
+      <OilDayReportPrintCopies data={payload} />
     </ThermalPrintFrame>
   );
 }

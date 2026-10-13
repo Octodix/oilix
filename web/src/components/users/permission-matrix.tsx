@@ -12,6 +12,7 @@ type Props = {
 export function PermissionMatrix({ value, onChange, disabled }: Props) {
   const mill = PERMISSION_MATRIX.filter((g) => g.workspace === 'mill');
   const sales = PERMISSION_MATRIX.filter((g) => g.workspace === 'sales');
+  const hr = PERMISSION_MATRIX.filter((g) => g.workspace === 'hr');
 
   function toggle(key: string) {
     if (disabled) return;
@@ -28,6 +29,7 @@ export function PermissionMatrix({ value, onChange, disabled }: Props) {
     <div className="space-y-5">
       <WorkspaceBlock title="المعصرة" groups={mill} value={value} toggle={toggle} setGroup={setGroup} disabled={disabled} />
       <WorkspaceBlock title="بيع الزيت" groups={sales} value={value} toggle={toggle} setGroup={setGroup} disabled={disabled} />
+      <WorkspaceBlock title="الموارد البشرية · RH" groups={hr} value={value} toggle={toggle} setGroup={setGroup} disabled={disabled} />
     </div>
   );
 }
