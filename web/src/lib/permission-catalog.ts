@@ -62,6 +62,7 @@ export const OIL_SALES_PERMISSIONS = [
   'OIL_SALES_STOCK_OVERRIDE',
   'OIL_SALES_INVENTORY_VIEW',
   'OIL_SALES_INVENTORY_CREATE',
+  'OIL_SALES_INVENTORY_REOPEN',
   'OIL_SALES_CUSTOMERS_VIEW',
   'OIL_SALES_CUSTOMERS_CREATE',
   'OIL_SALES_CUSTOMERS_EDIT',
@@ -357,6 +358,7 @@ export const PERMISSION_MATRIX: PermissionMatrixGroup[] = [
     actions: [
       { key: 'OIL_SALES_INVENTORY_VIEW', label: 'عرض' },
       { key: 'OIL_SALES_INVENTORY_CREATE', label: 'تسجيل جرد' },
+      { key: 'OIL_SALES_INVENTORY_REOPEN', label: 'إعادة فتح جرد يومي مؤكد' },
     ],
   },
   {

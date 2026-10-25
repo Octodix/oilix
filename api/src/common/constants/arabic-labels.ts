@@ -72,6 +72,7 @@ export const PERMISSION_LABELS_AR: Record<Permission, string> = {
   OIL_SALES_STOCK_OVERRIDE: 'تجاوز المخزون',
   OIL_SALES_INVENTORY_VIEW: 'عرض الجرد',
   OIL_SALES_INVENTORY_CREATE: 'تسجيل جرد',
+  OIL_SALES_INVENTORY_REOPEN: 'إعادة فتح جرد يومي مؤكد',
   OIL_SALES_CUSTOMERS_VIEW: 'عرض زبائن البيع',
   OIL_SALES_CUSTOMERS_CREATE: 'إضافة زبون بيع',
   OIL_SALES_CUSTOMERS_EDIT: 'تعديل زبون بيع',

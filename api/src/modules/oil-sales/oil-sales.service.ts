@@ -89,6 +89,12 @@ export const OIL_SETTING_KEYS = {
   PRICE_ZEBBOUCHE: 'oil_price_zebbouche',
   RECEIPT_HEADER: 'oil_receipt_header',
   RECEIPT_FOOTER: 'oil_receipt_footer',
+  /** Hour (Algeria time) at which a business day starts; 0 = midnight */
+  DAY_START_HOUR: 'oil_day_start_hour',
+  /** Daily closing: a reason is required from this many litres of difference… */
+  CLOSING_REASON_LITRES: 'oil_closing_reason_litres',
+  /** …or from this percentage of the expected stock */
+  CLOSING_REASON_PERCENT: 'oil_closing_reason_percent',
 } as const;
 
 function dec(n: number | string | Prisma.Decimal) {
@@ -173,6 +179,9 @@ export class OilSalesService {
       receiptFooter: String(
         map[OIL_SETTING_KEYS.RECEIPT_FOOTER] ?? 'شكراً لثقتكم · Oilix',
       ),
+      dayStartHour: Math.min(23, Math.max(0, Math.trunc(Number(map[OIL_SETTING_KEYS.DAY_START_HOUR] ?? 0)) || 0)),
+      closingReasonLitres: Math.max(0, Number(map[OIL_SETTING_KEYS.CLOSING_REASON_LITRES] ?? 1) || 0),
+      closingReasonPercent: Math.max(0, Number(map[OIL_SETTING_KEYS.CLOSING_REASON_PERCENT] ?? 1) || 0),
     };
   }
 
@@ -188,6 +197,13 @@ export class OilSalesService {
       pairs.push([OIL_SETTING_KEYS.RECEIPT_HEADER, dto.receiptHeader]);
     if (dto.receiptFooter != null)
       pairs.push([OIL_SETTING_KEYS.RECEIPT_FOOTER, dto.receiptFooter]);
+    if (dto.dayStartHour != null) pairs.push([OIL_SETTING_KEYS.DAY_START_HOUR, dto.dayStartHour]);
+    if (dto.closingReasonLitres != null) {
+      pairs.push([OIL_SETTING_KEYS.CLOSING_REASON_LITRES, dto.closingReasonLitres]);
+    }
+    if (dto.closingReasonPercent != null) {
+      pairs.push([OIL_SETTING_KEYS.CLOSING_REASON_PERCENT, dto.closingReasonPercent]);
+    }
 
     for (const [key, value] of pairs) {
       await this.prisma.setting.upsert({

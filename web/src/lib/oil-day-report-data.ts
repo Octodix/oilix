@@ -4,6 +4,7 @@ import {
   type OilDayReportPayload,
 } from '@/components/print/oil-day-report-document';
 import { formatDateTimeDz } from '@/lib/locale-dz';
+import { fetchDailyStockRange, type DailyStockDay } from '@/lib/daily-stock';
 
 export type OilDayReportSource = {
   summary: { net: number };
@@ -28,6 +29,8 @@ export type OilDayReportSource = {
     physicalCash: number | null;
     difference: number | null;
   }>;
+  /** Shared physical oil stock per business day (all registers) — separate from register money. */
+  dailyStock?: DailyStockDay[] | null;
 };
 
 export type DayPrintMeta = {
@@ -69,13 +72,16 @@ export function buildDayReportPrintPayload(
     generatedFromDevice: meta.device?.name || meta.device?.code || null,
     generatedAtLabel: formatDateTimeDz(meta.generatedAt),
     cashSession: sessionAgg,
+    dailyStock: report.dailyStock ?? null,
   });
 }
 
-export function fetchDayReport(q: DayReportQuery) {
-  return api
-    .get<OilDayReportSource>('/oil-sales/reports', { params: q })
-    .then((r) => r.data);
+export async function fetchDayReport(q: DayReportQuery): Promise<OilDayReportSource> {
+  const [report, dailyStock] = await Promise.all([
+    api.get<OilDayReportSource>('/oil-sales/reports', { params: q }).then((r) => r.data),
+    fetchDailyStockRange(q.from, q.to),
+  ]);
+  return { ...report, dailyStock };
 }
 
 /** Records the day-report print (who / which register / which device) and returns its metadata. */

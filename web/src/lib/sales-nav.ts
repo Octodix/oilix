@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 import {
   Box,
+  CalendarCheck,
   ClipboardList,
   Computer,
   Droplets,
@@ -138,6 +139,13 @@ export const SALES_NAV: SalesNavItem[] = [
     icon: Box,
     permission: 'OIL_SALES_CONTAINERS_VIEW',
     match: ['/sales/containers'],
+  },
+  {
+    href: '/sales/daily-closing',
+    label: 'الجرد اليومي',
+    icon: CalendarCheck,
+    permission: 'OIL_SALES_INVENTORY_VIEW',
+    match: ['/sales/daily-closing'],
   },
   {
     href: '/sales/inventory',

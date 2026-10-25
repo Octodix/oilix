@@ -46,10 +46,14 @@ import {
   UpdateOilContainerDto,
   UpdateOilCustomerDto,
   UpdateOilSalesSettingsDto,
+  ConfirmDailyClosingDto,
+  DailyStockQueryDto,
+  ReopenDailyClosingDto,
 } from './dto/oil-sales.dto';
 import { OilSalesService } from './oil-sales.service';
 import { CashRegisterService } from './cash-register.service';
 import { OilSalesDebtService } from './oil-sales-debt.service';
+import { OilDailyStockService } from './oil-daily-stock.service';
 import {
   CashAdjustDto,
   CashSessionQueryDto,
@@ -69,6 +73,7 @@ export class OilSalesController {
     private oilSales: OilSalesService,
     private cash: CashRegisterService,
     private debts: OilSalesDebtService,
+    private dailyStockService: OilDailyStockService,
   ) {}
 
   @Get('dashboard')
@@ -451,6 +456,30 @@ export class OilSalesController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.oilSales.recordDayReportPrint(dto, user.sub);
+  }
+
+  // ─── Daily stock closing (الجرد اليومي للزيت) ───────────────────────
+
+  @Get('daily-stock')
+  @RequireAnyPermissions(Permission.OIL_SALES_INVENTORY_VIEW, Permission.OIL_SALES_REPORTS_VIEW)
+  @ApiOperation({ summary: 'الجرد اليومي: افتتاح، إضافات، مبيعات، متوقع، فعلي، فرق (يوم أو فترة)' })
+  dailyStock(@Query() q: DailyStockQueryDto) {
+    if (q.from && q.to) return this.dailyStockService.range(q.from, q.to);
+    return this.dailyStockService.day(q.date ?? q.to ?? q.from ?? new Date().toISOString().slice(0, 10));
+  }
+
+  @Post('daily-stock/close')
+  @RequirePermissions(Permission.OIL_SALES_INVENTORY_CREATE)
+  @ApiOperation({ summary: 'تأكيد الجرد اليومي وترحيل الرصيد لليوم الموالي' })
+  closeDay(@Body() dto: ConfirmDailyClosingDto, @CurrentUser() user: JwtPayload) {
+    return this.dailyStockService.confirm(dto, user);
+  }
+
+  @Post('daily-stock/reopen')
+  @RequirePermissions(Permission.OIL_SALES_INVENTORY_REOPEN)
+  @ApiOperation({ summary: 'إعادة فتح جرد يومي مؤكد (يُلغى تعديله ويُحفظ في السجل)' })
+  reopenDay(@Body() dto: ReopenDailyClosingDto, @CurrentUser() user: JwtPayload) {
+    return this.dailyStockService.reopen(dto, user);
   }
 
   @Get('settings')

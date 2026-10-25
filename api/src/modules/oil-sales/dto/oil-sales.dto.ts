@@ -6,10 +6,12 @@ import {
   IsBoolean,
   IsDateString,
   IsEnum,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -633,6 +635,94 @@ export class UpdateOilSalesSettingsDto {
   @IsString()
   @MaxLength(200)
   receiptFooter?: string;
+
+  /** Business day start hour, Algeria time (0–23). */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(23)
+  dayStartHour?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  closingReasonLitres?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  closingReasonPercent?: number;
+}
+
+export class DailyStockQueryDto {
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  date?: string;
+
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  from?: string;
+
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  to?: string;
+}
+
+export class DailyClosingItemDto {
+  @IsEnum(OilSource)
+  oilSource!: OilSource;
+
+  @IsEnum(OilType)
+  oilType!: OilType;
+
+  /** Physical quantity counted at closing (litres). */
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  actualQty!: number;
+
+  /** Expected quantity shown on screen — rejected (409) if movements changed meanwhile. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  expectedQty?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  reason?: string;
+}
+
+export class ConfirmDailyClosingDto {
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  date!: string;
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(16)
+  @ValidateNested({ each: true })
+  @Type(() => DailyClosingItemDto)
+  items!: DailyClosingItemDto[];
+}
+
+export class ReopenDailyClosingDto {
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  date!: string;
+
+  @IsEnum(OilSource)
+  oilSource!: OilSource;
+
+  @IsEnum(OilType)
+  oilType!: OilType;
+
+  @IsString()
+  @MinLength(3)
+  @MaxLength(1000)
+  reason!: string;
 }
 
 export class RecordDebtPaymentDto {

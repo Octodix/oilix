@@ -77,6 +77,7 @@ enum Permission {
   OIL_SALES_STOCK_OVERRIDE
   OIL_SALES_INVENTORY_VIEW
   OIL_SALES_INVENTORY_CREATE
+  OIL_SALES_INVENTORY_REOPEN
   OIL_SALES_CUSTOMERS_VIEW
   OIL_SALES_CUSTOMERS_CREATE
   OIL_SALES_CUSTOMERS_EDIT
@@ -291,6 +292,8 @@ model User {
   millAssistAsAssistant    MillAssistanceSession[]      @relation("MillAssistAssistant")
   millAssistConfirmed      MillAssistanceSession[]      @relation("MillAssistConfirmedBy")
   millAssistResolved       MillAssistanceSession[]      @relation("MillAssistResolvedBy")
+  oilClosingsConfirmed     OilDailyClosing[]            @relation("OilClosingConfirmedBy")
+  oilClosingsReopened      OilDailyClosing[]            @relation("OilClosingReopenedBy")
   /**
    * Optional link: an employee may (or may not) have an Oilix login
    */
@@ -353,6 +356,7 @@ model Season {
   cashSessions             CashRegisterSession[]
   oilDayReportPrints       OilDayReportPrint[]
   millAssistanceSessions   MillAssistanceSession[]
+  oilDailyClosings         OilDailyClosing[]
   createdAt                DateTime                     @default(now()) @map("created_at")
   updatedAt                DateTime                     @updatedAt @map("updated_at")
 
@@ -646,6 +650,11 @@ model OilStockMovement {
   sale             OilSale?             @relation(fields: [saleId], references: [id])
   inventoryCountId String?              @map("inventory_count_id")
   inventoryCount   OilInventoryCount?   @relation(fields: [inventoryCountId], references: [id])
+  /**
+   * Reconciliation posted by a daily closing (and its reversal on reopen). Never a day movement.
+   */
+  dailyClosingId   String?              @map("daily_closing_id")
+  dailyClosing     OilDailyClosing?     @relation(fields: [dailyClosingId], references: [id])
   note             String?
   userId           String               @map("user_id")
   user             User                 @relation(fields: [userId], references: [id])
@@ -655,6 +664,7 @@ model OilStockMovement {
   @@index([type])
   @@index([saleId])
   @@index([inventoryCountId])
+  @@index([dailyClosingId])
   @@index([userId])
   @@map("oil_stock_movements")
 }
@@ -1060,6 +1070,7 @@ model Device {
   printSettings               DevicePrintSettings?
   millAssistAsAssistantDevice MillAssistanceSession[]  @relation("MillAssistAssistantDevice")
   millAssistAsPrimaryDevice   MillAssistanceSession[]  @relation("MillAssistPrimaryDevice")
+  oilDailyClosings            OilDailyClosing[]
   createdAt                   DateTime                 @default(now()) @map("created_at")
   updatedAt                   DateTime                 @updatedAt @map("updated_at")
 
@@ -2269,4 +2280,64 @@ model MillAssistanceSession {
   @@index([primaryOperatorId, status])
   @@index([seasonId, status])
   @@map("mill_assistance_sessions")
+}
+
+// ─── Daily oil stock closing (الجرد اليومي للزيت) ────────────────────────────
+// One CONFIRMED row per season / business day / oil bucket. Stock is shared by every cash
+// register, so closings are never per register. Values are frozen at confirmation; a
+// correction reopens the latest closing (its adjustment is reversed) and confirms again.
+
+enum OilDailyClosingStatus {
+  CONFIRMED
+  REOPENED
+}
+
+model OilDailyClosing {
+  id              String                @id @default(uuid())
+  seasonId        String                @map("season_id")
+  season          Season                @relation(fields: [seasonId], references: [id])
+  businessDate    DateTime              @map("business_date") @db.Date
+  oilSource       OilSource             @map("oil_source")
+  oilType         OilType               @map("oil_type")
+  status          OilDailyClosingStatus @default(CONFIRMED)
+  /**
+   * CONFIRMED = previous day physically closed; PROVISIONAL = ledger balance
+   */
+  openingSource   String                @map("opening_source")
+  openingQty      Decimal               @map("opening_qty") @db.Decimal(14, 2)
+  addedQty        Decimal               @map("added_qty") @db.Decimal(14, 2)
+  otherInQty      Decimal               @default(0) @map("other_in_qty") @db.Decimal(14, 2)
+  otherOutQty     Decimal               @default(0) @map("other_out_qty") @db.Decimal(14, 2)
+  soldQty         Decimal               @map("sold_qty") @db.Decimal(14, 2)
+  returnedQty     Decimal               @default(0) @map("returned_qty") @db.Decimal(14, 2)
+  availableQty    Decimal               @map("available_qty") @db.Decimal(14, 2)
+  expectedQty     Decimal               @map("expected_qty") @db.Decimal(14, 2)
+  actualQty       Decimal               @map("actual_qty") @db.Decimal(14, 2)
+  /**
+   * actual − expected (negative = shortage)
+   */
+  difference      Decimal               @db.Decimal(14, 2)
+  reason          String?
+  windowStart     DateTime              @map("window_start")
+  /**
+   * End of the counted window: confirmation time when the day is closed before it ends
+   */
+  windowEnd       DateTime              @map("window_end")
+  confirmedAt     DateTime              @default(now()) @map("confirmed_at")
+  confirmedById   String                @map("confirmed_by_id")
+  confirmedBy     User                  @relation("OilClosingConfirmedBy", fields: [confirmedById], references: [id])
+  confirmedByName String?               @map("confirmed_by_name")
+  deviceId        String?               @map("device_id")
+  device          Device?               @relation(fields: [deviceId], references: [id])
+  deviceName      String?               @map("device_name")
+  reopenedAt      DateTime?             @map("reopened_at")
+  reopenedById    String?               @map("reopened_by_id")
+  reopenedBy      User?                 @relation("OilClosingReopenedBy", fields: [reopenedById], references: [id])
+  reopenReason    String?               @map("reopen_reason")
+  movements       OilStockMovement[]
+  createdAt       DateTime              @default(now()) @map("created_at")
+
+  @@index([seasonId, businessDate])
+  @@index([seasonId, oilSource, oilType, businessDate])
+  @@map("oil_daily_closings")
 }

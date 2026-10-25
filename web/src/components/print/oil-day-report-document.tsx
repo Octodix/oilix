@@ -1,6 +1,7 @@
 import { OIL_SOURCES, OIL_TYPES, oilMeta, oilSourceMeta } from '@/lib/sales-nav';
 import { formatNumber } from '@/lib/utils';
 import { dayReportCopies } from '@/lib/print-plan';
+import { bucketHasActivity, type DailyStockDay, type DailyStockBucket } from '@/lib/daily-stock';
 
 export type DayReportColumn = {
   oilSource: string;
@@ -36,6 +37,8 @@ export type OilDayReportPayload = {
     cashSales?: number;
     expectedCash?: number;
   } | null;
+  /** Shared physical stock per business day (litres) — all registers, never mixed with money. */
+  dailyStock?: DailyStockDay[] | null;
 };
 
 export type OilDayReportMeta = {
@@ -45,6 +48,7 @@ export type OilDayReportMeta = {
   generatedAtLabel?: string;
   copyKind?: 'user' | 'archive';
   cashSession?: OilDayReportPayload['cashSession'];
+  dailyStock?: DailyStockDay[] | null;
 };
 
 function n(v: number, decimals = 1) {
@@ -85,17 +89,9 @@ function ReportMatrix({
     get: (c: DayReportColumn) => string;
     money?: boolean;
   }> = [
-    { label: 'المعروض', get: (c) => n(c.offered, 1) },
-    { label: 'المباع', get: (c) => n(c.sold, 1) },
-    { label: 'الباقي', get: (c) => n(c.remaining, 1) },
-    {
-      label: 'الفرق',
-      get: (c) => {
-        const d = c.difference;
-        const s = n(Math.abs(d), 1);
-        return d > 0 ? `+${s}` : d < 0 ? `-${s}` : '0';
-      },
-    },
+    // Register-specific: what THIS register sold and cashed. Physical stock (shared by all
+    // registers) is in the daily inventory section below, never mixed with money.
+    { label: 'المباع (ل)', get: (c) => n(c.sold, 1) },
     { label: 'المجموع', get: (c) => money(c.gross), money: true },
     { label: 'مساعدات', get: (c) => money(c.assistance), money: true },
   ];
@@ -134,6 +130,79 @@ function ReportMatrix({
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function signed(v: number) {
+  const a = n(Math.abs(v), 1);
+  return v > 0.004 ? `▲ +${a}` : v < -0.004 ? `▼ -${a}` : '0';
+}
+
+/** الجرد اليومي للزيت — opening → additions → sales → expected → actual → difference → next day. */
+function DailyStockSection({ day }: { day: DailyStockDay }) {
+  const sources = (OIL_SOURCES.map((s) => s.value) as Array<'STORED' | 'FARMER'>).map((src) => ({
+    src,
+    rows: day.buckets.filter((b) => b.oilSource === src && bucketHasActivity(b)),
+  }));
+  const shown = sources.filter((x) => x.rows.length);
+  const rows: Array<{ label: string; get: (b: DailyStockBucket) => string; strong?: boolean }> = [
+    { label: 'افتتاح', get: (b) => n(b.opening) + (b.openingSource === 'PROVISIONAL' ? '*' : '') },
+    { label: 'إضافات', get: (b) => n(b.added) },
+    ...(day.buckets.some((b) => b.otherIn || b.otherOut)
+      ? [{ label: 'تعديلات', get: (b: DailyStockBucket) => signed(b.otherIn - b.otherOut).replace(/[▲▼] /, '') }]
+      : []),
+    { label: 'المتاح', get: (b) => n(b.available) },
+    { label: 'المباع', get: (b) => n(b.netSold) },
+    { label: 'المتوقع', get: (b) => n(b.expected) },
+    { label: 'الفعلي', get: (b) => (b.actual == null ? '—' : n(b.actual)), strong: true },
+    { label: 'الفرق', get: (b) => (b.difference == null ? '—' : signed(b.difference)), strong: true },
+    { label: 'رصيد الغد', get: (b) => n(b.nextOpening) + (b.nextOpeningProvisional ? '*' : ''), strong: true },
+  ];
+  return (
+    <div className="mb-2 border-t border-dashed border-black pt-2">
+      <p className="text-center text-[11px] font-black">الجرد اليومي للزيت</p>
+      <p className="mb-1 text-center text-[9px] font-bold">Inventaire journalier d&apos;huile · {day.date.split('-').reverse().join('-')}</p>
+      <p className="mb-1 text-center text-[9px]">
+        {day.allConfirmed ? 'جرد مؤكد — مخزون مشترك لكل الصناديق' : 'غير مؤكد بعد — مخزون مشترك لكل الصناديق'}
+      </p>
+      {shown.length === 0 ? <p className="text-center text-[9px]">لا مخزون ولا حركة</p> : null}
+      {shown.map(({ src, rows: bs }) => (
+        <table key={src} className="oil-day-report-table mb-1 w-full border-collapse text-[9px] leading-tight">
+          <thead>
+            <tr>
+              <th className="oil-day-report-corner text-[8px]">{oilSourceMeta(src).label} · ل</th>
+              {bs.map((b) => (
+                <th key={b.oilType} className="oil-day-report-th">
+                  {shortHeader(b.oilSource, b.oilType)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.label}>
+                <td className="oil-day-report-label">{r.label}</td>
+                {bs.map((b) => (
+                  <td key={b.oilType} className={`oil-day-report-cell ${r.strong ? 'font-black' : ''}`}>
+                    {r.get(b)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ))}
+      {shown.length ? (
+        <div className="space-y-0.5 text-[9px]">
+          <InfoRow label="مجموع المتوقع (ل)" value={n(day.totals.all.expected)} />
+          {day.totals.all.actual != null ? <InfoRow label="مجموع الفعلي (ل)" value={n(day.totals.all.actual)} /> : null}
+          {day.anyConfirmed ? <InfoRow label="مجموع الفرق (ل)" value={signed(day.totals.all.difference)} /> : null}
+          {day.buckets.some((b) => b.openingSource === 'PROVISIONAL' || b.nextOpeningProvisional) ? (
+            <p className="text-[8px] opacity-80">* رصيد مؤقت (بدون جرد مؤكد)</p>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -190,6 +259,10 @@ export function OilDayReportDocument({ data }: { data: OilDayReportPayload }) {
 
       <ReportMatrix title={oilSourceMeta('STORED').label} cols={storedCols} />
       <ReportMatrix title={oilSourceMeta('FARMER').label} cols={farmerCols} />
+
+      {(data.dailyStock ?? []).map((day) => (
+        <DailyStockSection key={day.date} day={day} />
+      ))}
 
       {data.cashSession &&
       (data.cashSession.openingCash != null ||
@@ -302,5 +375,6 @@ export function buildOilDayReportPayload(
     generatedAtLabel: meta?.generatedAtLabel,
     copyKind: meta?.copyKind,
     cashSession: meta?.cashSession ?? null,
+    dailyStock: meta?.dailyStock ?? null,
   };
 }
