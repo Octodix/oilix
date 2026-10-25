@@ -16,6 +16,37 @@ export class HrReportsService {
     private hrSettings: HrSettingsService,
   ) {}
 
+  /**
+   * Refused terminal attempts still worth an alert: a refusal is resolved once that same
+   * terminal is accepted (registered, enabled, ADMS) and has called in after the refusal.
+   */
+  private async unresolvedRejections<T extends { deviceId: string | null; startedAt: Date; details: unknown }>(
+    rejections: T[],
+  ): Promise<T[]> {
+    if (!rejections.length) return rejections;
+    const serialOf = (r: T) => {
+      const d = r.details as { serialNumber?: unknown } | null;
+      return typeof d?.serialNumber === 'string' ? d.serialNumber : null;
+    };
+    const ids = [...new Set(rejections.map((r) => r.deviceId).filter((x): x is string => !!x))];
+    const serials = [...new Set(rejections.map(serialOf).filter((x): x is string => !!x))];
+    const devices = await this.prisma.hrAttendanceDevice.findMany({
+      where: { OR: [{ id: { in: ids } }, { serialNumber: { in: serials } }] },
+      select: { id: true, serialNumber: true, isEnabled: true, provider: true, lastConnectionAt: true },
+    });
+    return rejections.filter((r) => {
+      const serial = serialOf(r);
+      const dev = devices.find((d) => d.id === r.deviceId || (!!serial && d.serialNumber === serial));
+      const acceptedSince =
+        !!dev &&
+        dev.isEnabled &&
+        dev.provider === 'ZKTECO_ADMS' &&
+        !!dev.lastConnectionAt &&
+        dev.lastConnectionAt > r.startedAt;
+      return !acceptedSince;
+    });
+  }
+
   async dashboard(user: JwtPayload) {
     const settings = await this.hrSettings.get();
     const today = localDateKey(new Date(), settings.timezoneOffsetMinutes);
@@ -87,7 +118,7 @@ export class HrReportsService {
       },
       presence: { counts: live.counts, lastSyncAt: live.lastSyncAt, lastEventReceivedAt: live.lastEventReceivedAt },
       devices: live.devices,
-      rejectedDevices,
+      rejectedDevices: await this.unresolvedRejections(rejectedDevices),
       month: {
         from: monthStart,
         to: today,
