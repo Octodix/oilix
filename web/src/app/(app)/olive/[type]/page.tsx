@@ -79,7 +79,8 @@ export default function OliveTypePage({
 
   const qc = useQueryClient();
   const { readOnly } = useSeasonReadOnly();
-  const [mode, setMode] = useState<'existing' | 'new'>('existing');
+  // Most arrivals at reception are new clients: the form starts (and resets) on "زبون جديد".
+  const [mode, setMode] = useState<'existing' | 'new'>('new');
   const [clientId, setClientId] = useState('');
   const [clientSearch, setClientSearch] = useState('');
   const [newClient, setNewClient] = useState({
@@ -220,6 +221,11 @@ export default function OliveTypePage({
       setBagCount('1');
       setAdhlefCount('0');
       setCapacity('0');
+      // Next client starts clean on "زبون جديد" (a kept name would register the same client twice).
+      setMode('new');
+      setNewClient({ firstName: '', lastName: '', phone: '', notes: '' });
+      setClientId('');
+      setClientSearch('');
       toast.success('تم الحفظ');
       const cid = (variables as { clientId: string }).clientId;
       if (cid) openClientReceipt(cid, { autoPrint: true, oliveType });
