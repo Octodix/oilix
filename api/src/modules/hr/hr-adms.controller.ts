@@ -9,6 +9,7 @@ import {
   admsHandshakeResponse,
   admsIsLegacyFirmware,
   admsTable,
+  isRealAdmsStamp,
   ADMS_ROUTES,
   bodyAsText,
   nonEmptyLineCount,
@@ -124,7 +125,7 @@ export class HrAdmsController {
           invalidSample: parsed.invalid.slice(0, 10),
         },
       });
-      if (q.Stamp && /^\d+$/.test(q.Stamp)) await this.devices.admsSetStamp(device.id, q.Stamp);
+      if (isRealAdmsStamp(q.Stamp)) await this.devices.admsSetStamp(device.id, q.Stamp!);
       this.send(res, 200, `OK: ${lines}`);
     } catch (e) {
       this.logger.error(`ADMS ATTLOG ingest failed for ${device.serialNumber}: ${(e as Error).message}`);

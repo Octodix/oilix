@@ -3,6 +3,7 @@ import {
   admsHandshakeResponse,
   admsIsLegacyFirmware,
   admsTable,
+  isRealAdmsStamp,
   normaliseSerial,
 } from './adms-protocol';
 import {
@@ -105,6 +106,21 @@ describe('ADMS protocol', () => {
     expect(r).toContain('Stamp=42');
     expect(r).toContain('TransFlag=TransData AttLog');
     expect(r).not.toMatch(/EnrollFP|OpLog\b|AttPhoto|EnrollUser/);
+  });
+
+  it('the 9999 placeholder stamp is never stored nor handed back as a position', () => {
+    expect(isRealAdmsStamp('9999')).toBe(false);
+    expect(isRealAdmsStamp('')).toBe(false);
+    expect(isRealAdmsStamp('abc')).toBe(false);
+    expect(isRealAdmsStamp('1234')).toBe(true);
+    const r = admsHandshakeResponse({
+      serialNumber: 'FYA1261300585',
+      attlogStamp: '9999',
+      delaySeconds: 30,
+      transIntervalMinutes: 1,
+      timezoneHours: 1,
+    });
+    expect(r).toContain('ATTLOGStamp=0');
   });
 
   it('PUSH 2.0 firmware (no pushver) gets the legacy cursors and bitmask, attendance only', () => {

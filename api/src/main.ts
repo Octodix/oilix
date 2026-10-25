@@ -1,5 +1,6 @@
 import { RequestMethod, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { text } from 'express';
 import { AppModule } from './app.module';
@@ -26,7 +27,11 @@ function assertJwtSecret() {
 
 async function bootstrap() {
   assertJwtSecret();
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // Behind nginx on the same host: take the client address from X-Forwarded-For, but only
+  // when the request really comes from the local proxy (so the header cannot be spoofed).
+  // Gives real IPs to the login rate limiter, audit logs and attendance-terminal logs.
+  app.set('trust proxy', 'loopback');
 
   // ZKTeco terminals post plain-text ATTLOG to fixed /iclock/* paths (no prefix, any content-type).
   app.use(

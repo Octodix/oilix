@@ -58,8 +58,18 @@ export type AdmsOptions = {
 /** PUSH 2.0 bitmask: AttLog only — OpLog, photos, users, fingerprints and faces stay off. */
 const LEGACY_TRANSFLAG_ATTLOG_ONLY = '1000000000';
 
+/**
+ * "9999" is the placeholder K-series firmware (pushver 2.4.1, e.g. K50 Pro) sends on every
+ * upload and the value Oilix uses for logs it never wants. It is not an upload position:
+ * storing it and handing it back as ATTLOGStamp would tell the terminal everything up to
+ * 9999 is already received, so records still in its memory might never be resent.
+ */
+export function isRealAdmsStamp(stamp: string | null | undefined): boolean {
+  return !!stamp && /^\d+$/.test(stamp) && stamp !== '9999';
+}
+
 export function admsHandshakeResponse(o: AdmsOptions): string {
-  const stamp = o.attlogStamp && /^\d+$/.test(o.attlogStamp) ? o.attlogStamp : '0';
+  const stamp = isRealAdmsStamp(o.attlogStamp) ? o.attlogStamp! : '0';
   if (o.legacy) {
     return [
       `GET OPTION FROM: ${o.serialNumber}`,
