@@ -103,6 +103,12 @@ enum Permission {
   OIL_SALES_DEVICES_MANAGE
   MILL_DEVICES_VIEW
   MILL_DEVICES_MANAGE
+  MILL_ASSIST_START
+  MILL_ASSIST_CLOSE
+  MILL_ASSIST_PRINT
+  MILL_ASSIST_VIEW_ALL
+  MILL_ASSIST_CONFIRM
+  MILL_ASSIST_RESOLVE
   OIL_SALES_REPORTS_VIEW
   OIL_SALES_REPORTS_EXPORT
   OIL_SALES_PRINT_RECEIPT
@@ -140,13 +146,17 @@ enum Permission {
   HR_SETTINGS_MANAGE
 }
 
-/** مصدر الزيت للبيع بالتجزئة */
+/**
+ * مصدر الزيت للبيع بالتجزئة
+ */
 enum OilSource {
   STORED
   FARMER
 }
 
-/** نوع الزيت للبيع بالتجزئة (مستقل عن نوع الزيتون) */
+/**
+ * نوع الزيت للبيع بالتجزئة (مستقل عن نوع الزيتون)
+ */
 enum OilType {
   GREEN
   TAIEB
@@ -245,41 +255,49 @@ model Role {
 }
 
 model User {
-  id              String           @id @default(uuid())
-  username        String           @unique
-  email           String?          @unique
-  passwordHash    String           @map("password_hash")
-  firstName       String?          @map("first_name")
-  lastName        String?          @map("last_name")
-  isActive        Boolean          @default(true) @map("is_active")
-  roleId          String           @map("role_id")
-  role            Role             @relation(fields: [roleId], references: [id])
-  /** صلاحيات مستقلة عن الدور — إن كانت فارغة يُورَث الدور */
-  permissions     Permission[]
-  auditLogs       AuditLog[]
-  oliveEntries    OliveEntry[]
-  pressingRecords PressingRecord[]
-  filtrationRecords FiltrationRecord[]
-  filtrationUpdates FiltrationRecord[] @relation("FiltrationUpdatedBy")
-  payments        Payment[]
-  oilSalesCreated OilSale[]            @relation("OilSaleCreatedBy")
-  oilSalesCancelled OilSale[]          @relation("OilSaleCancelledBy")
-  oilStockMovements OilStockMovement[]
-  oilInventoryCounts OilInventoryCount[]
-  oilCustomersCreated OilSaleCustomer[] @relation("OilCustomerCreatedBy")
-  oilContainerMovements OilContainerStockMovement[]
-  oilContainerCounts OilContainerInventoryCount[]
-  oilSalePayments OilSalePayment[]
+  id                       String                       @id @default(uuid())
+  username                 String                       @unique
+  email                    String?                      @unique
+  passwordHash             String                       @map("password_hash")
+  firstName                String?                      @map("first_name")
+  lastName                 String?                      @map("last_name")
+  isActive                 Boolean                      @default(true) @map("is_active")
+  roleId                   String                       @map("role_id")
+  role                     Role                         @relation(fields: [roleId], references: [id])
+  /**
+   * صلاحيات مستقلة عن الدور — إن كانت فارغة يُورَث الدور
+   */
+  permissions              Permission[]
+  auditLogs                AuditLog[]
+  oliveEntries             OliveEntry[]
+  pressingRecords          PressingRecord[]
+  filtrationRecords        FiltrationRecord[]
+  filtrationUpdates        FiltrationRecord[]           @relation("FiltrationUpdatedBy")
+  payments                 Payment[]
+  oilSalesCreated          OilSale[]                    @relation("OilSaleCreatedBy")
+  oilSalesCancelled        OilSale[]                    @relation("OilSaleCancelledBy")
+  oilStockMovements        OilStockMovement[]
+  oilInventoryCounts       OilInventoryCount[]
+  oilCustomersCreated      OilSaleCustomer[]            @relation("OilCustomerCreatedBy")
+  oilContainerMovements    OilContainerStockMovement[]
+  oilContainerCounts       OilContainerInventoryCount[]
+  oilSalePayments          OilSalePayment[]
   oilCustomerLedgerEntries OilCustomerLedgerEntry[]
-  devicesApproved Device[] @relation("DeviceApprovedBy")
-  cashSessionsOpened CashRegisterSession[] @relation("CashSessionOpenedBy")
-  cashSessionsClosed CashRegisterSession[] @relation("CashSessionClosedBy")
-  oilDayReportPrints OilDayReportPrint[]
-  /** Optional link: an employee may (or may not) have an Oilix login */
-  hrEmployee      HrEmployee?
-  createdAt       DateTime         @default(now()) @map("created_at")
-  updatedAt       DateTime         @updatedAt @map("updated_at")
-  deletedAt       DateTime?        @map("deleted_at")
+  devicesApproved          Device[]                     @relation("DeviceApprovedBy")
+  cashSessionsOpened       CashRegisterSession[]        @relation("CashSessionOpenedBy")
+  cashSessionsClosed       CashRegisterSession[]        @relation("CashSessionClosedBy")
+  oilDayReportPrints       OilDayReportPrint[]
+  millAssistAsPrimary      MillAssistanceSession[]      @relation("MillAssistPrimary")
+  millAssistAsAssistant    MillAssistanceSession[]      @relation("MillAssistAssistant")
+  millAssistConfirmed      MillAssistanceSession[]      @relation("MillAssistConfirmedBy")
+  millAssistResolved       MillAssistanceSession[]      @relation("MillAssistResolvedBy")
+  /**
+   * Optional link: an employee may (or may not) have an Oilix login
+   */
+  hrEmployee               HrEmployee?
+  createdAt                DateTime                     @default(now()) @map("created_at")
+  updatedAt                DateTime                     @updatedAt @map("updated_at")
+  deletedAt                DateTime?                    @map("deleted_at")
 
   @@index([roleId])
   @@index([deletedAt])
@@ -314,59 +332,60 @@ model Client {
 }
 
 model Season {
-  id           String       @id @default(uuid())
-  name         String
-  startDate    DateTime     @map("start_date")
-  endDate      DateTime?    @map("end_date")
-  isActive     Boolean      @default(true) @map("is_active")
-  clients      Client[]
-  oliveEntries OliveEntry[]
-  filtrationRecords FiltrationRecord[]
-  oilSaleCustomers OilSaleCustomer[]
-  oilStockBalances OilStockBalance[]
-  oilStockMovements OilStockMovement[]
-  oilInventoryCounts OilInventoryCount[]
-  oilSales     OilSale[]
-  oilSalePayments OilSalePayment[]
+  id                       String                       @id @default(uuid())
+  name                     String
+  startDate                DateTime                     @map("start_date")
+  endDate                  DateTime?                    @map("end_date")
+  isActive                 Boolean                      @default(true) @map("is_active")
+  clients                  Client[]
+  oliveEntries             OliveEntry[]
+  filtrationRecords        FiltrationRecord[]
+  oilSaleCustomers         OilSaleCustomer[]
+  oilStockBalances         OilStockBalance[]
+  oilStockMovements        OilStockMovement[]
+  oilInventoryCounts       OilInventoryCount[]
+  oilSales                 OilSale[]
+  oilSalePayments          OilSalePayment[]
   oilCustomerLedgerEntries OilCustomerLedgerEntry[]
-  oilContainerBalances OilContainerStockBalance[]
-  oilContainerMovements OilContainerStockMovement[]
-  oilContainerCounts OilContainerInventoryCount[]
-  cashSessions CashRegisterSession[]
-  oilDayReportPrints OilDayReportPrint[]
-  createdAt    DateTime     @default(now()) @map("created_at")
-  updatedAt    DateTime     @updatedAt @map("updated_at")
+  oilContainerBalances     OilContainerStockBalance[]
+  oilContainerMovements    OilContainerStockMovement[]
+  oilContainerCounts       OilContainerInventoryCount[]
+  cashSessions             CashRegisterSession[]
+  oilDayReportPrints       OilDayReportPrint[]
+  millAssistanceSessions   MillAssistanceSession[]
+  createdAt                DateTime                     @default(now()) @map("created_at")
+  updatedAt                DateTime                     @updatedAt @map("updated_at")
 
   @@map("seasons")
 }
 
 model OliveEntry {
-  id              String         @id @default(uuid())
-  referenceNumber Int            @map("reference_number")
-  clientId        String         @map("client_id")
-  client          Client         @relation(fields: [clientId], references: [id])
-  seasonId        String         @map("season_id")
-  season          Season         @relation(fields: [seasonId], references: [id])
-  oliveType       OliveType      @map("olive_type")
-  bagCount        Int            @map("bag_count")
-  adhlefCount     Int?           @map("adhlef_count")
-  capacity        Decimal?       @db.Decimal(10, 2)
-  totalWeightKg   Decimal        @map("total_weight_kg") @db.Decimal(10, 2)
-  status          EntryStatus    @default(RECEIVED)
-  isNonReferential Boolean       @default(false) @map("is_non_referential")
-  notes           String?
-  notes2          String?        @map("notes2")
-  entryDate       DateTime       @default(now()) @map("entry_date")
-  entryTime       String         @map("entry_time")
-  userId          String         @map("user_id")
-  user            User           @relation(fields: [userId], references: [id])
-  deviceId        String?        @map("device_id")
-  device          Device?        @relation(fields: [deviceId], references: [id])
-  weights         EntryWeight[]
-  pressingRecord  PressingRecord?
-  createdAt       DateTime       @default(now()) @map("created_at")
-  updatedAt       DateTime       @updatedAt @map("updated_at")
-  deletedAt       DateTime?      @map("deleted_at")
+  id               String          @id @default(uuid())
+  referenceNumber  Int             @map("reference_number")
+  clientId         String          @map("client_id")
+  client           Client          @relation(fields: [clientId], references: [id])
+  seasonId         String          @map("season_id")
+  season           Season          @relation(fields: [seasonId], references: [id])
+  oliveType        OliveType       @map("olive_type")
+  bagCount         Int             @map("bag_count")
+  adhlefCount      Int?            @map("adhlef_count")
+  capacity         Decimal?        @db.Decimal(10, 2)
+  totalWeightKg    Decimal         @map("total_weight_kg") @db.Decimal(10, 2)
+  status           EntryStatus     @default(RECEIVED)
+  isNonReferential Boolean         @default(false) @map("is_non_referential")
+  notes            String?
+  notes2           String?         @map("notes2")
+  entryDate        DateTime        @default(now()) @map("entry_date")
+  entryTime        String          @map("entry_time")
+  userId           String          @map("user_id")
+  user             User            @relation(fields: [userId], references: [id])
+  deviceId         String?         @map("device_id")
+  device           Device?         @relation(fields: [deviceId], references: [id])
+  weights          EntryWeight[]
+  pressingRecord   PressingRecord?
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+  deletedAt        DateTime?       @map("deleted_at")
 
   @@unique([seasonId, oliveType, referenceNumber])
   @@index([clientId])
@@ -393,29 +412,34 @@ model EntryWeight {
 }
 
 model PressingRecord {
-  id            String     @id @default(uuid())
-  oliveEntryId  String     @unique @map("olive_entry_id")
-  oliveEntry    OliveEntry @relation(fields: [oliveEntryId], references: [id])
-  oilQuantityL  Decimal    @map("oil_quantity_l") @db.Decimal(10, 2)
-  region        String?
-  zayat         String?
-  yieldPercent  Decimal?   @map("yield_percent") @db.Decimal(5, 2)
-  amount        Decimal    @db.Decimal(12, 2)
-  aidAmount     Decimal    @default(0) @map("aid_amount") @db.Decimal(12, 2)
-  oilCollected  Boolean    @default(false) @map("oil_collected")
-  paid          Boolean    @default(false)
-  notes         String?
-  notes2        String?    @map("notes2")
-  pickupDate    DateTime?  @map("pickup_date")
-  treatmentDate DateTime   @default(now()) @map("treatment_date")
-  treatmentTime String     @map("treatment_time")
-  userId        String     @map("user_id")
-  user          User       @relation(fields: [userId], references: [id])
-  deviceId      String?    @map("device_id")
-  device        Device?    @relation(fields: [deviceId], references: [id])
-  payments      Payment[]
-  createdAt     DateTime   @default(now()) @map("created_at")
-  updatedAt     DateTime   @updatedAt @map("updated_at")
+  id                  String                 @id @default(uuid())
+  oliveEntryId        String                 @unique @map("olive_entry_id")
+  oliveEntry          OliveEntry             @relation(fields: [oliveEntryId], references: [id])
+  oilQuantityL        Decimal                @map("oil_quantity_l") @db.Decimal(10, 2)
+  region              String?
+  zayat               String?
+  yieldPercent        Decimal?               @map("yield_percent") @db.Decimal(5, 2)
+  amount              Decimal                @db.Decimal(12, 2)
+  aidAmount           Decimal                @default(0) @map("aid_amount") @db.Decimal(12, 2)
+  oilCollected        Boolean                @default(false) @map("oil_collected")
+  paid                Boolean                @default(false)
+  notes               String?
+  notes2              String?                @map("notes2")
+  pickupDate          DateTime?              @map("pickup_date")
+  treatmentDate       DateTime               @default(now()) @map("treatment_date")
+  treatmentTime       String                 @map("treatment_time")
+  userId              String                 @map("user_id")
+  user                User                   @relation(fields: [userId], references: [id])
+  deviceId            String?                @map("device_id")
+  device              Device?                @relation(fields: [deviceId], references: [id])
+  payments            Payment[]
+  /**
+   * Assistance session during which this operation was recorded (traceability only).
+   */
+  assistanceSessionId String?                @map("assistance_session_id")
+  assistanceSession   MillAssistanceSession? @relation(fields: [assistanceSessionId], references: [id])
+  createdAt           DateTime               @default(now()) @map("created_at")
+  updatedAt           DateTime               @updatedAt @map("updated_at")
 
   @@index([treatmentDate])
   @@index([paid])
@@ -424,7 +448,9 @@ model PressingRecord {
   @@map("pressing_records")
 }
 
-/** عمليات تصفية الزيت — تطبيق Oilix Filtration */
+/**
+ * عمليات تصفية الزيت — تطبيق Oilix Filtration
+ */
 model FiltrationRecord {
   id              String    @id @default(uuid())
   seasonId        String    @map("season_id")
@@ -459,21 +485,27 @@ model FiltrationRecord {
 }
 
 model Payment {
-  id               String         @id @default(uuid())
-  pressingRecordId String         @map("pressing_record_id")
-  pressingRecord   PressingRecord @relation(fields: [pressingRecordId], references: [id])
-  amount           Decimal        @db.Decimal(12, 2)
-  paymentDate      DateTime       @default(now()) @map("payment_date")
-  paymentTime      String         @map("payment_time")
-  method           String?
-  notes            String?
-  userId           String         @map("user_id")
-  user             User           @relation(fields: [userId], references: [id])
-  deviceId         String?        @map("device_id")
-  device           Device?        @relation(fields: [deviceId], references: [id])
-  createdAt        DateTime       @default(now()) @map("created_at")
+  id                  String                 @id @default(uuid())
+  pressingRecordId    String                 @map("pressing_record_id")
+  pressingRecord      PressingRecord         @relation(fields: [pressingRecordId], references: [id])
+  amount              Decimal                @db.Decimal(12, 2)
+  paymentDate         DateTime               @default(now()) @map("payment_date")
+  paymentTime         String                 @map("payment_time")
+  method              String?
+  notes               String?
+  userId              String                 @map("user_id")
+  user                User                   @relation(fields: [userId], references: [id])
+  deviceId            String?                @map("device_id")
+  device              Device?                @relation(fields: [deviceId], references: [id])
+  /**
+   * Set when the payment was collected by an assistant inside an assistance session (never twice).
+   */
+  assistanceSessionId String?                @map("assistance_session_id")
+  assistanceSession   MillAssistanceSession? @relation(fields: [assistanceSessionId], references: [id])
+  createdAt           DateTime               @default(now()) @map("created_at")
 
   @@index([pressingRecordId])
+  @@index([assistanceSessionId])
   @@index([paymentDate])
   @@index([deviceId])
   @@map("payments")
@@ -546,25 +578,27 @@ model ReportSnapshot {
   @@map("report_snapshots")
 }
 
-/** زبائن بيع الزيت — مستقلون عن زبائن المعصرة */
+/**
+ * زبائن بيع الزيت — مستقلون عن زبائن المعصرة
+ */
 model OilSaleCustomer {
-  id          String    @id @default(uuid())
-  seasonId    String    @map("season_id")
-  season      Season    @relation(fields: [seasonId], references: [id])
-  name        String
-  phone       String?
-  address     String?
-  wilaya      String?
-  commune     String?
-  notes       String?
-  createdById String?   @map("created_by_id")
-  createdBy   User?     @relation("OilCustomerCreatedBy", fields: [createdById], references: [id])
-  sales       OilSale[]
-  payments    OilSalePayment[]
+  id            String                   @id @default(uuid())
+  seasonId      String                   @map("season_id")
+  season        Season                   @relation(fields: [seasonId], references: [id])
+  name          String
+  phone         String?
+  address       String?
+  wilaya        String?
+  commune       String?
+  notes         String?
+  createdById   String?                  @map("created_by_id")
+  createdBy     User?                    @relation("OilCustomerCreatedBy", fields: [createdById], references: [id])
+  sales         OilSale[]
+  payments      OilSalePayment[]
   ledgerEntries OilCustomerLedgerEntry[]
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
-  deletedAt   DateTime? @map("deleted_at")
+  createdAt     DateTime                 @default(now()) @map("created_at")
+  updatedAt     DateTime                 @updatedAt @map("updated_at")
+  deletedAt     DateTime?                @map("deleted_at")
 
   @@index([seasonId])
   @@index([name])
@@ -578,19 +612,19 @@ model OilSaleCustomer {
  * المصدر الحقيقي للحركة هو OilStockMovement؛ هذا الجدول للسرعة والقفل المتزامن.
  */
 model OilStockBalance {
-  id             String    @id @default(uuid())
-  seasonId       String    @map("season_id")
-  season         Season    @relation(fields: [seasonId], references: [id])
-  oilSource      OilSource @default(STORED) @map("oil_source")
-  oilType        OilType   @map("oil_type")
-  totalAdded     Decimal   @default(0) @map("total_added") @db.Decimal(14, 2)
-  totalSold      Decimal   @default(0) @map("total_sold") @db.Decimal(14, 2)
-  theoreticalQty Decimal   @default(0) @map("theoretical_qty") @db.Decimal(14, 2)
-  physicalQty    Decimal?  @map("physical_qty") @db.Decimal(14, 2)
+  id              String    @id @default(uuid())
+  seasonId        String    @map("season_id")
+  season          Season    @relation(fields: [seasonId], references: [id])
+  oilSource       OilSource @default(STORED) @map("oil_source")
+  oilType         OilType   @map("oil_type")
+  totalAdded      Decimal   @default(0) @map("total_added") @db.Decimal(14, 2)
+  totalSold       Decimal   @default(0) @map("total_sold") @db.Decimal(14, 2)
+  theoreticalQty  Decimal   @default(0) @map("theoretical_qty") @db.Decimal(14, 2)
+  physicalQty     Decimal?  @map("physical_qty") @db.Decimal(14, 2)
   lastInventoryAt DateTime? @map("last_inventory_at")
-  version        Int       @default(0)
-  updatedAt      DateTime  @updatedAt @map("updated_at")
-  createdAt      DateTime  @default(now()) @map("created_at")
+  version         Int       @default(0)
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
 
   @@unique([seasonId, oilSource, oilType])
   @@index([seasonId])
@@ -599,23 +633,23 @@ model OilStockBalance {
 }
 
 model OilStockMovement {
-  id               String                @id @default(uuid())
-  seasonId         String                @map("season_id")
-  season           Season                @relation(fields: [seasonId], references: [id])
-  oilSource        OilSource             @default(STORED) @map("oil_source")
-  oilType          OilType               @map("oil_type")
+  id               String               @id @default(uuid())
+  seasonId         String               @map("season_id")
+  season           Season               @relation(fields: [seasonId], references: [id])
+  oilSource        OilSource            @default(STORED) @map("oil_source")
+  oilType          OilType              @map("oil_type")
   type             OilStockMovementType
-  quantityL        Decimal               @map("quantity_l") @db.Decimal(14, 2)
-  stockBefore      Decimal               @map("stock_before") @db.Decimal(14, 2)
-  stockAfter       Decimal               @map("stock_after") @db.Decimal(14, 2)
-  saleId           String?               @map("sale_id")
-  sale             OilSale?              @relation(fields: [saleId], references: [id])
-  inventoryCountId String?               @map("inventory_count_id")
-  inventoryCount   OilInventoryCount?    @relation(fields: [inventoryCountId], references: [id])
+  quantityL        Decimal              @map("quantity_l") @db.Decimal(14, 2)
+  stockBefore      Decimal              @map("stock_before") @db.Decimal(14, 2)
+  stockAfter       Decimal              @map("stock_after") @db.Decimal(14, 2)
+  saleId           String?              @map("sale_id")
+  sale             OilSale?             @relation(fields: [saleId], references: [id])
+  inventoryCountId String?              @map("inventory_count_id")
+  inventoryCount   OilInventoryCount?   @relation(fields: [inventoryCountId], references: [id])
   note             String?
-  userId           String                @map("user_id")
-  user             User                  @relation(fields: [userId], references: [id])
-  createdAt        DateTime              @default(now()) @map("created_at")
+  userId           String               @map("user_id")
+  user             User                 @relation(fields: [userId], references: [id])
+  createdAt        DateTime             @default(now()) @map("created_at")
 
   @@index([seasonId, oilSource, oilType, createdAt])
   @@index([type])
@@ -626,22 +660,22 @@ model OilStockMovement {
 }
 
 model OilInventoryCount {
-  id                 String                     @id @default(uuid())
-  seasonId           String                     @map("season_id")
-  season             Season                     @relation(fields: [seasonId], references: [id])
-  oilSource          OilSource                  @default(STORED) @map("oil_source")
-  oilType            OilType                    @map("oil_type")
-  theoreticalBefore  Decimal                    @map("theoretical_before") @db.Decimal(14, 2)
-  physicalQty        Decimal                    @map("physical_qty") @db.Decimal(14, 2)
-  difference         Decimal                    @db.Decimal(14, 2)
-  differenceType     OilInventoryDifferenceType @default(BALANCED) @map("difference_type")
-  lossQty            Decimal                    @map("loss_qty") @db.Decimal(14, 2)
-  surplusQty         Decimal                    @default(0) @map("surplus_qty") @db.Decimal(14, 2)
-  note               String?
-  userId             String                     @map("user_id")
-  user               User                       @relation(fields: [userId], references: [id])
-  movements          OilStockMovement[]
-  createdAt          DateTime                   @default(now()) @map("created_at")
+  id                String                     @id @default(uuid())
+  seasonId          String                     @map("season_id")
+  season            Season                     @relation(fields: [seasonId], references: [id])
+  oilSource         OilSource                  @default(STORED) @map("oil_source")
+  oilType           OilType                    @map("oil_type")
+  theoreticalBefore Decimal                    @map("theoretical_before") @db.Decimal(14, 2)
+  physicalQty       Decimal                    @map("physical_qty") @db.Decimal(14, 2)
+  difference        Decimal                    @db.Decimal(14, 2)
+  differenceType    OilInventoryDifferenceType @default(BALANCED) @map("difference_type")
+  lossQty           Decimal                    @map("loss_qty") @db.Decimal(14, 2)
+  surplusQty        Decimal                    @default(0) @map("surplus_qty") @db.Decimal(14, 2)
+  note              String?
+  userId            String                     @map("user_id")
+  user              User                       @relation(fields: [userId], references: [id])
+  movements         OilStockMovement[]
+  createdAt         DateTime                   @default(now()) @map("created_at")
 
   @@index([seasonId, oilSource, oilType, createdAt])
   @@index([userId])
@@ -649,60 +683,64 @@ model OilInventoryCount {
 }
 
 model OilSale {
-  id                       String         @id @default(uuid())
-  seasonId                 String         @map("season_id")
-  season                   Season         @relation(fields: [seasonId], references: [id])
-  receiptNumber            Int            @map("receipt_number")
-  /** Null = walk-in counter sale (زبون عابر) — never allowed to carry debt */
-  customerId               String?        @map("customer_id")
-  customer                 OilSaleCustomer? @relation(fields: [customerId], references: [id])
-  oilSource                OilSource?     @map("oil_source")
-  oilType                  OilType?       @map("oil_type")
-  quantityL                Decimal        @default(0) @map("quantity_l") @db.Decimal(14, 2)
-  unitPrice                Decimal        @map("unit_price") @db.Decimal(14, 2)
-  grossAmount              Decimal        @map("gross_amount") @db.Decimal(14, 2)
-  assistanceFixed          Decimal        @default(0) @map("assistance_fixed") @db.Decimal(14, 2)
-  assistancePercent        Decimal        @default(0) @map("assistance_percent") @db.Decimal(7, 3)
-  assistancePercentAmount  Decimal        @default(0) @map("assistance_percent_amount") @db.Decimal(14, 2)
-  assistancePerLitre       Decimal        @default(0) @map("assistance_per_litre") @db.Decimal(14, 2)
-  assistancePerLitreTotal  Decimal        @default(0) @map("assistance_per_litre_total") @db.Decimal(14, 2)
-  totalAssistance          Decimal        @default(0) @map("total_assistance") @db.Decimal(14, 2)
-  finalAmount              Decimal        @map("final_amount") @db.Decimal(14, 2)
-  amountPaid               Decimal        @default(0) @map("amount_paid") @db.Decimal(14, 2)
-  remainingAmount          Decimal        @default(0) @map("remaining_amount") @db.Decimal(14, 2)
-  paymentStatus            OilSalePaymentStatus @default(PAID) @map("payment_status")
-  status                   OilSaleStatus  @default(COMPLETED)
-  notes                    String?
-  overrideStock            Boolean        @default(false) @map("override_stock")
-  overrideContainerStock   Boolean        @default(false) @map("override_container_stock")
-  saleDate                 DateTime       @default(now()) @map("sale_date")
-  saleTime                 String         @map("sale_time")
-  createdById              String         @map("created_by_id")
-  createdBy                User           @relation("OilSaleCreatedBy", fields: [createdById], references: [id])
-  /** Snapshot at sale time — historical receipts stay accurate if the user is renamed */
-  createdByName            String?        @map("created_by_name")
-  createdByUsername        String?        @map("created_by_username")
-  deviceId                 String?        @map("device_id")
-  device                   Device?        @relation(fields: [deviceId], references: [id])
-  cashRegisterId           String?        @map("cash_register_id")
-  cashRegister             CashRegister?  @relation(fields: [cashRegisterId], references: [id])
-  cashSessionId            String?        @map("cash_session_id")
-  cashSession              CashRegisterSession? @relation(fields: [cashSessionId], references: [id])
-  deviceCode               String?        @map("device_code")
-  deviceName               String?        @map("device_name")
-  cashRegisterCode         String?        @map("cash_register_code")
-  cashRegisterName         String?        @map("cash_register_name")
-  cancelledAt              DateTime?      @map("cancelled_at")
-  cancelledById            String?        @map("cancelled_by_id")
-  cancelledBy              User?          @relation("OilSaleCancelledBy", fields: [cancelledById], references: [id])
-  cancelReason             String?        @map("cancel_reason")
-  movements                OilStockMovement[]
-  containerMovements       OilContainerStockMovement[]
-  items                    OilSaleItem[]
-  paymentAllocations       OilSalePaymentAllocation[]
-  ledgerEntries            OilCustomerLedgerEntry[]
-  createdAt                DateTime       @default(now()) @map("created_at")
-  updatedAt                DateTime       @updatedAt @map("updated_at")
+  id                      String                      @id @default(uuid())
+  seasonId                String                      @map("season_id")
+  season                  Season                      @relation(fields: [seasonId], references: [id])
+  receiptNumber           Int                         @map("receipt_number")
+  /**
+   * Null = walk-in counter sale (زبون عابر) — never allowed to carry debt
+   */
+  customerId              String?                     @map("customer_id")
+  customer                OilSaleCustomer?            @relation(fields: [customerId], references: [id])
+  oilSource               OilSource?                  @map("oil_source")
+  oilType                 OilType?                    @map("oil_type")
+  quantityL               Decimal                     @default(0) @map("quantity_l") @db.Decimal(14, 2)
+  unitPrice               Decimal                     @map("unit_price") @db.Decimal(14, 2)
+  grossAmount             Decimal                     @map("gross_amount") @db.Decimal(14, 2)
+  assistanceFixed         Decimal                     @default(0) @map("assistance_fixed") @db.Decimal(14, 2)
+  assistancePercent       Decimal                     @default(0) @map("assistance_percent") @db.Decimal(7, 3)
+  assistancePercentAmount Decimal                     @default(0) @map("assistance_percent_amount") @db.Decimal(14, 2)
+  assistancePerLitre      Decimal                     @default(0) @map("assistance_per_litre") @db.Decimal(14, 2)
+  assistancePerLitreTotal Decimal                     @default(0) @map("assistance_per_litre_total") @db.Decimal(14, 2)
+  totalAssistance         Decimal                     @default(0) @map("total_assistance") @db.Decimal(14, 2)
+  finalAmount             Decimal                     @map("final_amount") @db.Decimal(14, 2)
+  amountPaid              Decimal                     @default(0) @map("amount_paid") @db.Decimal(14, 2)
+  remainingAmount         Decimal                     @default(0) @map("remaining_amount") @db.Decimal(14, 2)
+  paymentStatus           OilSalePaymentStatus        @default(PAID) @map("payment_status")
+  status                  OilSaleStatus               @default(COMPLETED)
+  notes                   String?
+  overrideStock           Boolean                     @default(false) @map("override_stock")
+  overrideContainerStock  Boolean                     @default(false) @map("override_container_stock")
+  saleDate                DateTime                    @default(now()) @map("sale_date")
+  saleTime                String                      @map("sale_time")
+  createdById             String                      @map("created_by_id")
+  createdBy               User                        @relation("OilSaleCreatedBy", fields: [createdById], references: [id])
+  /**
+   * Snapshot at sale time — historical receipts stay accurate if the user is renamed
+   */
+  createdByName           String?                     @map("created_by_name")
+  createdByUsername       String?                     @map("created_by_username")
+  deviceId                String?                     @map("device_id")
+  device                  Device?                     @relation(fields: [deviceId], references: [id])
+  cashRegisterId          String?                     @map("cash_register_id")
+  cashRegister            CashRegister?               @relation(fields: [cashRegisterId], references: [id])
+  cashSessionId           String?                     @map("cash_session_id")
+  cashSession             CashRegisterSession?        @relation(fields: [cashSessionId], references: [id])
+  deviceCode              String?                     @map("device_code")
+  deviceName              String?                     @map("device_name")
+  cashRegisterCode        String?                     @map("cash_register_code")
+  cashRegisterName        String?                     @map("cash_register_name")
+  cancelledAt             DateTime?                   @map("cancelled_at")
+  cancelledById           String?                     @map("cancelled_by_id")
+  cancelledBy             User?                       @relation("OilSaleCancelledBy", fields: [cancelledById], references: [id])
+  cancelReason            String?                     @map("cancel_reason")
+  movements               OilStockMovement[]
+  containerMovements      OilContainerStockMovement[]
+  items                   OilSaleItem[]
+  paymentAllocations      OilSalePaymentAllocation[]
+  ledgerEntries           OilCustomerLedgerEntry[]
+  createdAt               DateTime                    @default(now()) @map("created_at")
+  updatedAt               DateTime                    @updatedAt @map("updated_at")
 
   @@unique([seasonId, receiptNumber])
   @@index([seasonId, oilSource, oilType])
@@ -719,36 +757,40 @@ model OilSale {
   @@map("oil_sales")
 }
 
-/** تسديد دين / دفعة على بيع زيت */
+/**
+ * تسديد دين / دفعة على بيع زيت
+ */
 model OilSalePayment {
-  id                 String   @id @default(uuid())
-  seasonId           String   @map("season_id")
-  season             Season   @relation(fields: [seasonId], references: [id])
-  receiptNumber      Int      @map("receipt_number")
-  customerId         String   @map("customer_id")
-  customer           OilSaleCustomer @relation(fields: [customerId], references: [id])
-  amount             Decimal  @db.Decimal(14, 2)
-  paymentMethod      String   @default("CASH") @map("payment_method")
-  reference          String?
-  notes              String?
-  userId             String   @map("user_id")
-  user               User     @relation(fields: [userId], references: [id])
-  /** Snapshot at payment time */
-  userName           String?  @map("user_name")
-  userUsername       String?  @map("user_username")
-  deviceId           String?  @map("device_id")
-  device             Device?  @relation(fields: [deviceId], references: [id])
-  cashRegisterId     String?  @map("cash_register_id")
-  cashRegister       CashRegister? @relation(fields: [cashRegisterId], references: [id])
-  cashSessionId      String?  @map("cash_session_id")
-  cashSession        CashRegisterSession? @relation(fields: [cashSessionId], references: [id])
-  deviceCode         String?  @map("device_code")
-  deviceName         String?  @map("device_name")
-  cashRegisterCode   String?  @map("cash_register_code")
-  cashRegisterName   String?  @map("cash_register_name")
-  allocations        OilSalePaymentAllocation[]
-  ledgerEntries      OilCustomerLedgerEntry[]
-  createdAt          DateTime @default(now()) @map("created_at")
+  id               String                     @id @default(uuid())
+  seasonId         String                     @map("season_id")
+  season           Season                     @relation(fields: [seasonId], references: [id])
+  receiptNumber    Int                        @map("receipt_number")
+  customerId       String                     @map("customer_id")
+  customer         OilSaleCustomer            @relation(fields: [customerId], references: [id])
+  amount           Decimal                    @db.Decimal(14, 2)
+  paymentMethod    String                     @default("CASH") @map("payment_method")
+  reference        String?
+  notes            String?
+  userId           String                     @map("user_id")
+  user             User                       @relation(fields: [userId], references: [id])
+  /**
+   * Snapshot at payment time
+   */
+  userName         String?                    @map("user_name")
+  userUsername     String?                    @map("user_username")
+  deviceId         String?                    @map("device_id")
+  device           Device?                    @relation(fields: [deviceId], references: [id])
+  cashRegisterId   String?                    @map("cash_register_id")
+  cashRegister     CashRegister?              @relation(fields: [cashRegisterId], references: [id])
+  cashSessionId    String?                    @map("cash_session_id")
+  cashSession      CashRegisterSession?       @relation(fields: [cashSessionId], references: [id])
+  deviceCode       String?                    @map("device_code")
+  deviceName       String?                    @map("device_name")
+  cashRegisterCode String?                    @map("cash_register_code")
+  cashRegisterName String?                    @map("cash_register_name")
+  allocations      OilSalePaymentAllocation[]
+  ledgerEntries    OilCustomerLedgerEntry[]
+  createdAt        DateTime                   @default(now()) @map("created_at")
 
   @@unique([seasonId, receiptNumber])
   @@index([seasonId, customerId, createdAt])
@@ -772,26 +814,26 @@ model OilSalePaymentAllocation {
 }
 
 model OilCustomerLedgerEntry {
-  id           String                 @id @default(uuid())
-  seasonId     String                 @map("season_id")
-  season       Season                 @relation(fields: [seasonId], references: [id])
-  customerId   String                 @map("customer_id")
-  customer     OilSaleCustomer        @relation(fields: [customerId], references: [id])
+  id           String                @id @default(uuid())
+  seasonId     String                @map("season_id")
+  season       Season                @relation(fields: [seasonId], references: [id])
+  customerId   String                @map("customer_id")
+  customer     OilSaleCustomer       @relation(fields: [customerId], references: [id])
   type         OilCustomerLedgerType
-  saleId       String?                @map("sale_id")
-  sale         OilSale?               @relation(fields: [saleId], references: [id])
-  paymentId    String?                @map("payment_id")
-  payment      OilSalePayment?        @relation(fields: [paymentId], references: [id])
-  debit        Decimal                @default(0) @db.Decimal(14, 2)
-  credit       Decimal                @default(0) @db.Decimal(14, 2)
-  balanceAfter Decimal                @map("balance_after") @db.Decimal(14, 2)
+  saleId       String?               @map("sale_id")
+  sale         OilSale?              @relation(fields: [saleId], references: [id])
+  paymentId    String?               @map("payment_id")
+  payment      OilSalePayment?       @relation(fields: [paymentId], references: [id])
+  debit        Decimal               @default(0) @db.Decimal(14, 2)
+  credit       Decimal               @default(0) @db.Decimal(14, 2)
+  balanceAfter Decimal               @map("balance_after") @db.Decimal(14, 2)
   reference    String?
   notes        String?
-  userId       String                 @map("user_id")
-  user         User                   @relation(fields: [userId], references: [id])
-  deviceId     String?                @map("device_id")
-  device       Device?                @relation(fields: [deviceId], references: [id])
-  createdAt    DateTime               @default(now()) @map("created_at")
+  userId       String                @map("user_id")
+  user         User                  @relation(fields: [userId], references: [id])
+  deviceId     String?               @map("device_id")
+  device       Device?               @relation(fields: [deviceId], references: [id])
+  createdAt    DateTime              @default(now()) @map("created_at")
 
   @@index([seasonId, customerId, createdAt])
   @@index([saleId])
@@ -800,25 +842,27 @@ model OilCustomerLedgerEntry {
   @@map("oil_customer_ledger_entries")
 }
 
-/** منتج التعبئة / الضلف — مخزون مستقل بالقطعة */
+/**
+ * منتج التعبئة / الضلف — مخزون مستقل بالقطعة
+ */
 model OilContainer {
-  id          String        @id @default(uuid())
-  name        String
-  capacityL   Decimal       @map("capacity_l") @db.Decimal(12, 2)
-  sku         String?
-  costPrice   Decimal?      @map("cost_price") @db.Decimal(14, 2)
-  unitPrice   Decimal?      @map("unit_price") @db.Decimal(14, 2)
-  minStock    Int           @default(0) @map("min_stock")
-  isActive    Boolean       @default(true) @map("is_active")
-  sortOrder   Int           @default(0) @map("sort_order")
-  notes       String?
-  saleItems   OilSaleItem[]
-  balances    OilContainerStockBalance[]
-  movements   OilContainerStockMovement[]
-  counts      OilContainerInventoryCount[]
-  createdAt   DateTime      @default(now()) @map("created_at")
-  updatedAt   DateTime      @updatedAt @map("updated_at")
-  deletedAt   DateTime?     @map("deleted_at")
+  id        String                       @id @default(uuid())
+  name      String
+  capacityL Decimal                      @map("capacity_l") @db.Decimal(12, 2)
+  sku       String?
+  costPrice Decimal?                     @map("cost_price") @db.Decimal(14, 2)
+  unitPrice Decimal?                     @map("unit_price") @db.Decimal(14, 2)
+  minStock  Int                          @default(0) @map("min_stock")
+  isActive  Boolean                      @default(true) @map("is_active")
+  sortOrder Int                          @default(0) @map("sort_order")
+  notes     String?
+  saleItems OilSaleItem[]
+  balances  OilContainerStockBalance[]
+  movements OilContainerStockMovement[]
+  counts    OilContainerInventoryCount[]
+  createdAt DateTime                     @default(now()) @map("created_at")
+  updatedAt DateTime                     @updatedAt @map("updated_at")
+  deletedAt DateTime?                    @map("deleted_at")
 
   @@index([isActive, sortOrder])
   @@index([deletedAt])
@@ -849,24 +893,24 @@ model OilContainerStockBalance {
 }
 
 model OilContainerStockMovement {
-  id               String                          @id @default(uuid())
-  seasonId         String                          @map("season_id")
-  season           Season                          @relation(fields: [seasonId], references: [id])
-  containerId      String                          @map("container_id")
-  container        OilContainer                    @relation(fields: [containerId], references: [id])
+  id               String                        @id @default(uuid())
+  seasonId         String                        @map("season_id")
+  season           Season                        @relation(fields: [seasonId], references: [id])
+  containerId      String                        @map("container_id")
+  container        OilContainer                  @relation(fields: [containerId], references: [id])
   type             OilContainerStockMovementType
   quantity         Int
-  stockBefore      Int                             @map("stock_before")
-  stockAfter       Int                             @map("stock_after")
-  unitCost         Decimal?                        @map("unit_cost") @db.Decimal(14, 2)
-  saleId           String?                         @map("sale_id")
-  sale             OilSale?                        @relation(fields: [saleId], references: [id])
-  inventoryCountId String?                         @map("inventory_count_id")
-  inventoryCount   OilContainerInventoryCount?     @relation(fields: [inventoryCountId], references: [id])
+  stockBefore      Int                           @map("stock_before")
+  stockAfter       Int                           @map("stock_after")
+  unitCost         Decimal?                      @map("unit_cost") @db.Decimal(14, 2)
+  saleId           String?                       @map("sale_id")
+  sale             OilSale?                      @relation(fields: [saleId], references: [id])
+  inventoryCountId String?                       @map("inventory_count_id")
+  inventoryCount   OilContainerInventoryCount?   @relation(fields: [inventoryCountId], references: [id])
   note             String?
-  userId           String                          @map("user_id")
-  user             User                            @relation(fields: [userId], references: [id])
-  createdAt        DateTime                        @default(now()) @map("created_at")
+  userId           String                        @map("user_id")
+  user             User                          @relation(fields: [userId], references: [id])
+  createdAt        DateTime                      @default(now()) @map("created_at")
 
   @@index([seasonId, containerId, createdAt])
   @@index([type])
@@ -877,22 +921,22 @@ model OilContainerStockMovement {
 }
 
 model OilContainerInventoryCount {
-  id                String                     @id @default(uuid())
-  seasonId          String                     @map("season_id")
-  season            Season                     @relation(fields: [seasonId], references: [id])
-  containerId       String                     @map("container_id")
-  container         OilContainer               @relation(fields: [containerId], references: [id])
-  theoreticalBefore Int                        @map("theoretical_before")
-  physicalQty       Int                        @map("physical_qty")
+  id                String                      @id @default(uuid())
+  seasonId          String                      @map("season_id")
+  season            Season                      @relation(fields: [seasonId], references: [id])
+  containerId       String                      @map("container_id")
+  container         OilContainer                @relation(fields: [containerId], references: [id])
+  theoreticalBefore Int                         @map("theoretical_before")
+  physicalQty       Int                         @map("physical_qty")
   difference        Int
-  differenceType    OilInventoryDifferenceType @default(BALANCED) @map("difference_type")
-  lossQty           Int                        @map("loss_qty")
-  surplusQty        Int                        @default(0) @map("surplus_qty")
+  differenceType    OilInventoryDifferenceType  @default(BALANCED) @map("difference_type")
+  lossQty           Int                         @map("loss_qty")
+  surplusQty        Int                         @default(0) @map("surplus_qty")
   note              String?
-  userId            String                     @map("user_id")
-  user              User                       @relation(fields: [userId], references: [id])
+  userId            String                      @map("user_id")
+  user              User                        @relation(fields: [userId], references: [id])
   movements         OilContainerStockMovement[]
-  createdAt         DateTime                   @default(now()) @map("created_at")
+  createdAt         DateTime                    @default(now()) @map("created_at")
 
   @@index([seasonId, containerId, createdAt])
   @@index([userId])
@@ -900,24 +944,30 @@ model OilContainerInventoryCount {
 }
 
 model OilSaleItem {
-  id                   String          @id @default(uuid())
-  saleId               String          @map("sale_id")
-  sale                 OilSale         @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  oilSource            OilSource?      @map("oil_source")
-  oilType              OilType?        @map("oil_type")
-  kind                 OilSaleLineKind
-  pricingMode          OilPricingMode  @default(PER_LITRE) @map("pricing_mode")
-  containerId          String?         @map("container_id")
-  container            OilContainer?   @relation(fields: [containerId], references: [id])
-  containerName        String?         @map("container_name")
-  containerCapacityL   Decimal?        @map("container_capacity_l") @db.Decimal(12, 2)
-  containerCount       Int?            @map("container_count")
-  quantityL            Decimal         @default(0) @map("quantity_l") @db.Decimal(14, 2)
-  unitPrice            Decimal         @map("unit_price") @db.Decimal(14, 2)
-  containerPrice       Decimal?        @map("container_price") @db.Decimal(14, 2)
-  lineGross            Decimal         @map("line_gross") @db.Decimal(14, 2)
-  sortOrder            Int             @default(0) @map("sort_order")
-  createdAt            DateTime        @default(now()) @map("created_at")
+  id                 String          @id @default(uuid())
+  saleId             String          @map("sale_id")
+  sale               OilSale         @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  oilSource          OilSource?      @map("oil_source")
+  oilType            OilType?        @map("oil_type")
+  kind               OilSaleLineKind
+  pricingMode        OilPricingMode  @default(PER_LITRE) @map("pricing_mode")
+  containerId        String?         @map("container_id")
+  container          OilContainer?   @relation(fields: [containerId], references: [id])
+  containerName      String?         @map("container_name")
+  containerCapacityL Decimal?        @map("container_capacity_l") @db.Decimal(12, 2)
+  containerCount     Int?            @map("container_count")
+  quantityL          Decimal         @default(0) @map("quantity_l") @db.Decimal(14, 2)
+  unitPrice          Decimal         @map("unit_price") @db.Decimal(14, 2)
+  containerPrice     Decimal?        @map("container_price") @db.Decimal(14, 2)
+  lineGross          Decimal         @map("line_gross") @db.Decimal(14, 2)
+  /**
+   * Assistance of THIS line only — each oil line carries its own rate and fixed amount
+   */
+  assistancePerLitre Decimal         @default(0) @map("assistance_per_litre") @db.Decimal(14, 2)
+  assistanceFixed    Decimal         @default(0) @map("assistance_fixed") @db.Decimal(14, 2)
+  lineAssistance     Decimal         @default(0) @map("line_assistance") @db.Decimal(14, 2)
+  sortOrder          Int             @default(0) @map("sort_order")
+  createdAt          DateTime        @default(now()) @map("created_at")
 
   @@index([saleId])
   @@index([containerId])
@@ -959,57 +1009,59 @@ model OilSaleHold {
 }
 
 model CashRegister {
-  id        String                 @id @default(uuid())
-  code      String                 @unique
-  name      String
-  isActive  Boolean                @default(true) @map("is_active")
-  sortOrder Int                    @default(0) @map("sort_order")
-  notes     String?
-  devices   Device[]
-  sessions  CashRegisterSession[]
-  sales     OilSale[]
-  oilSalePayments OilSalePayment[]
-  dayReportPrints OilDayReportPrint[]
+  id               String                @id @default(uuid())
+  code             String                @unique
+  name             String
+  isActive         Boolean               @default(true) @map("is_active")
+  sortOrder        Int                   @default(0) @map("sort_order")
+  notes            String?
+  devices          Device[]
+  sessions         CashRegisterSession[]
+  sales            OilSale[]
+  oilSalePayments  OilSalePayment[]
+  dayReportPrints  OilDayReportPrint[]
   hrSalaryPayments HrSalaryPayment[]
-  hrAdvances      HrAdvance[]
-  hrLoans         HrLoan[]
-  hrExpenses      HrExpense[]
-  createdAt DateTime               @default(now()) @map("created_at")
-  updatedAt DateTime               @updatedAt @map("updated_at")
+  hrAdvances       HrAdvance[]
+  hrLoans          HrLoan[]
+  hrExpenses       HrExpense[]
+  createdAt        DateTime              @default(now()) @map("created_at")
+  updatedAt        DateTime              @updatedAt @map("updated_at")
 
   @@index([isActive, sortOrder])
   @@map("cash_registers")
 }
 
 model Device {
-  id               String           @id @default(uuid())
-  installationId   String           @unique @map("installation_id")
-  code             String?          @unique
-  name             String
-  workspace        DeviceWorkspace  @default(BOTH)
-  status           DeviceStatus     @default(PENDING)
-  location         String?
-  notes            String?
-  lastSeenAt       DateTime?        @map("last_seen_at")
-  approvedAt       DateTime?        @map("approved_at")
-  approvedById     String?          @map("approved_by_id")
-  approvedBy       User?            @relation("DeviceApprovedBy", fields: [approvedById], references: [id])
-  cashRegisterId   String?          @map("cash_register_id")
-  cashRegister     CashRegister?    @relation(fields: [cashRegisterId], references: [id])
-  sessions         CashRegisterSession[]
-  oilSales         OilSale[]
-  oilSalePayments  OilSalePayment[]
-  oilCustomerLedgerEntries OilCustomerLedgerEntry[]
-  oliveEntries     OliveEntry[]
-  pressingRecords  PressingRecord[]
-  filtrationRecords FiltrationRecord[]
-  payments         Payment[]
-  clients          Client[]
-  auditLogs        AuditLog[]
-  dayReportPrints  OilDayReportPrint[]
-  printSettings    DevicePrintSettings?
-  createdAt        DateTime         @default(now()) @map("created_at")
-  updatedAt        DateTime         @updatedAt @map("updated_at")
+  id                          String                   @id @default(uuid())
+  installationId              String                   @unique @map("installation_id")
+  code                        String?                  @unique
+  name                        String
+  workspace                   DeviceWorkspace          @default(BOTH)
+  status                      DeviceStatus             @default(PENDING)
+  location                    String?
+  notes                       String?
+  lastSeenAt                  DateTime?                @map("last_seen_at")
+  approvedAt                  DateTime?                @map("approved_at")
+  approvedById                String?                  @map("approved_by_id")
+  approvedBy                  User?                    @relation("DeviceApprovedBy", fields: [approvedById], references: [id])
+  cashRegisterId              String?                  @map("cash_register_id")
+  cashRegister                CashRegister?            @relation(fields: [cashRegisterId], references: [id])
+  sessions                    CashRegisterSession[]
+  oilSales                    OilSale[]
+  oilSalePayments             OilSalePayment[]
+  oilCustomerLedgerEntries    OilCustomerLedgerEntry[]
+  oliveEntries                OliveEntry[]
+  pressingRecords             PressingRecord[]
+  filtrationRecords           FiltrationRecord[]
+  payments                    Payment[]
+  clients                     Client[]
+  auditLogs                   AuditLog[]
+  dayReportPrints             OilDayReportPrint[]
+  printSettings               DevicePrintSettings?
+  millAssistAsAssistantDevice MillAssistanceSession[]  @relation("MillAssistAssistantDevice")
+  millAssistAsPrimaryDevice   MillAssistanceSession[]  @relation("MillAssistPrimaryDevice")
+  createdAt                   DateTime                 @default(now()) @map("created_at")
+  updatedAt                   DateTime                 @updatedAt @map("updated_at")
 
   @@index([status])
   @@index([workspace])
@@ -1019,38 +1071,38 @@ model Device {
 }
 
 model CashRegisterSession {
-  id             String            @id @default(uuid())
-  seasonId       String            @map("season_id")
-  season         Season            @relation(fields: [seasonId], references: [id])
-  cashRegisterId String            @map("cash_register_id")
-  cashRegister   CashRegister      @relation(fields: [cashRegisterId], references: [id])
-  deviceId       String            @map("device_id")
-  device         Device            @relation(fields: [deviceId], references: [id])
-  status         CashSessionStatus @default(OPEN)
-  openedAt       DateTime          @default(now()) @map("opened_at")
-  closedAt       DateTime?         @map("closed_at")
-  openedById     String            @map("opened_by_id")
-  openedBy       User              @relation("CashSessionOpenedBy", fields: [openedById], references: [id])
-  closedById     String?           @map("closed_by_id")
-  closedBy       User?             @relation("CashSessionClosedBy", fields: [closedById], references: [id])
-  openingCash    Decimal           @map("opening_cash") @db.Decimal(14, 2)
-  cashSales      Decimal           @default(0) @map("cash_sales") @db.Decimal(14, 2)
-  cashRefunds    Decimal           @default(0) @map("cash_refunds") @db.Decimal(14, 2)
-  cashIn         Decimal           @default(0) @map("cash_in") @db.Decimal(14, 2)
-  cashOut        Decimal           @default(0) @map("cash_out") @db.Decimal(14, 2)
-  expectedCash   Decimal?          @map("expected_cash") @db.Decimal(14, 2)
-  physicalCash   Decimal?          @map("physical_cash") @db.Decimal(14, 2)
-  difference     Decimal?          @db.Decimal(14, 2)
-  openingNote    String?           @map("opening_note")
-  closingNote    String?           @map("closing_note")
-  sales          OilSale[]
-  oilSalePayments OilSalePayment[]
+  id               String            @id @default(uuid())
+  seasonId         String            @map("season_id")
+  season           Season            @relation(fields: [seasonId], references: [id])
+  cashRegisterId   String            @map("cash_register_id")
+  cashRegister     CashRegister      @relation(fields: [cashRegisterId], references: [id])
+  deviceId         String            @map("device_id")
+  device           Device            @relation(fields: [deviceId], references: [id])
+  status           CashSessionStatus @default(OPEN)
+  openedAt         DateTime          @default(now()) @map("opened_at")
+  closedAt         DateTime?         @map("closed_at")
+  openedById       String            @map("opened_by_id")
+  openedBy         User              @relation("CashSessionOpenedBy", fields: [openedById], references: [id])
+  closedById       String?           @map("closed_by_id")
+  closedBy         User?             @relation("CashSessionClosedBy", fields: [closedById], references: [id])
+  openingCash      Decimal           @map("opening_cash") @db.Decimal(14, 2)
+  cashSales        Decimal           @default(0) @map("cash_sales") @db.Decimal(14, 2)
+  cashRefunds      Decimal           @default(0) @map("cash_refunds") @db.Decimal(14, 2)
+  cashIn           Decimal           @default(0) @map("cash_in") @db.Decimal(14, 2)
+  cashOut          Decimal           @default(0) @map("cash_out") @db.Decimal(14, 2)
+  expectedCash     Decimal?          @map("expected_cash") @db.Decimal(14, 2)
+  physicalCash     Decimal?          @map("physical_cash") @db.Decimal(14, 2)
+  difference       Decimal?          @db.Decimal(14, 2)
+  openingNote      String?           @map("opening_note")
+  closingNote      String?           @map("closing_note")
+  sales            OilSale[]
+  oilSalePayments  OilSalePayment[]
   hrSalaryPayments HrSalaryPayment[]
-  hrAdvances     HrAdvance[]
-  hrLoans        HrLoan[]
-  hrExpenses     HrExpense[]
-  createdAt      DateTime          @default(now()) @map("created_at")
-  updatedAt      DateTime          @updatedAt @map("updated_at")
+  hrAdvances       HrAdvance[]
+  hrLoans          HrLoan[]
+  hrExpenses       HrExpense[]
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
 
   @@index([seasonId, status])
   @@index([cashRegisterId, status])
@@ -1071,17 +1123,25 @@ model DevicePrintSettings {
   browserFallback     Boolean  @default(true) @map("browser_fallback")
   autoPrintAfterSale  Boolean  @default(false) @map("auto_print_after_sale")
   receiptPrinter      String?  @map("receipt_printer")
-  /** 58 | 80 */
+  /**
+   * 58 | 80
+   */
   receiptPaperWidth   Int      @default(80) @map("receipt_paper_width")
   receiptDirect       Boolean  @default(true) @map("receipt_direct")
   receiptCopies       Int      @default(1) @map("receipt_copies")
   documentPrinter     String?  @map("document_printer")
-  /** A4 | A5 */
+  /**
+   * A4 | A5
+   */
   documentPaperFormat String   @default("A4") @map("document_paper_format")
-  /** PORTRAIT | LANDSCAPE */
+  /**
+   * PORTRAIT | LANDSCAPE
+   */
   documentOrientation String   @default("PORTRAIT") @map("document_orientation")
   documentCopies      Int      @default(1) @map("document_copies")
-  /** RECEIPT | DOCUMENT — which printer receives the financial day report */
+  /**
+   * RECEIPT | DOCUMENT — which printer receives the financial day report
+   */
   dayReportTarget     String   @default("DOCUMENT") @map("day_report_target")
   updatedById         String?  @map("updated_by_id")
   createdAt           DateTime @default(now()) @map("created_at")
@@ -1101,9 +1161,13 @@ model PrintJobLog {
   documentRef      String?  @map("document_ref")
   copyLabel        String?  @map("copy_label")
   isReprint        Boolean  @default(false) @map("is_reprint")
-  /** AGENT | BROWSER */
+  /**
+   * AGENT | BROWSER
+   */
   channel          String
-  /** SUBMITTED | FAILED | BROWSER_OPENED */
+  /**
+   * SUBMITTED | FAILED | BROWSER_OPENED
+   */
   status           String
   errorCode        String?  @map("error_code")
   errorMessage     String?  @map("error_message")
@@ -1125,25 +1189,27 @@ model PrintJobLog {
   @@map("print_job_logs")
 }
 
-/** سجل طباعة / توليد اليومية المالية لصندوق معين */
+/**
+ * سجل طباعة / توليد اليومية المالية لصندوق معين
+ */
 model OilDayReportPrint {
-  id                 String       @id @default(uuid())
-  seasonId           String       @map("season_id")
-  season             Season       @relation(fields: [seasonId], references: [id])
-  fromDate           DateTime     @map("from_date") @db.Date
-  toDate             DateTime     @map("to_date") @db.Date
-  cashRegisterId     String       @map("cash_register_id")
-  cashRegister       CashRegister @relation(fields: [cashRegisterId], references: [id])
-  cashRegisterCode   String       @map("cash_register_code")
-  cashRegisterName   String       @map("cash_register_name")
-  generatedById      String       @map("generated_by_id")
-  generatedBy        User         @relation(fields: [generatedById], references: [id])
-  generatedByName    String       @map("generated_by_name")
-  deviceId           String?      @map("device_id")
-  device             Device?      @relation(fields: [deviceId], references: [id])
-  deviceCode         String?      @map("device_code")
-  deviceName         String?      @map("device_name")
-  createdAt          DateTime     @default(now()) @map("created_at")
+  id               String       @id @default(uuid())
+  seasonId         String       @map("season_id")
+  season           Season       @relation(fields: [seasonId], references: [id])
+  fromDate         DateTime     @map("from_date") @db.Date
+  toDate           DateTime     @map("to_date") @db.Date
+  cashRegisterId   String       @map("cash_register_id")
+  cashRegister     CashRegister @relation(fields: [cashRegisterId], references: [id])
+  cashRegisterCode String       @map("cash_register_code")
+  cashRegisterName String       @map("cash_register_name")
+  generatedById    String       @map("generated_by_id")
+  generatedBy      User         @relation(fields: [generatedById], references: [id])
+  generatedByName  String       @map("generated_by_name")
+  deviceId         String?      @map("device_id")
+  device           Device?      @relation(fields: [deviceId], references: [id])
+  deviceCode       String?      @map("device_code")
+  deviceName       String?      @map("device_name")
+  createdAt        DateTime     @default(now()) @map("created_at")
 
   @@index([seasonId, cashRegisterId, fromDate])
   @@index([generatedById])
@@ -1187,74 +1253,78 @@ enum HrPayrollStatus {
 }
 
 model HrDepartment {
-  id          String                 @id @default(uuid())
-  code        String?                @unique
-  name        String
-  nameFr      String?                @map("name_fr")
-  isActive    Boolean                @default(true) @map("is_active")
-  notes       String?
-  employees   HrEmployee[]
-  contracts   HrContract[]
+  id                  String                 @id @default(uuid())
+  code                String?                @unique
+  name                String
+  nameFr              String?                @map("name_fr")
+  isActive            Boolean                @default(true) @map("is_active")
+  notes               String?
+  employees           HrEmployee[]
+  contracts           HrContract[]
   scheduleAssignments HrScheduleAssignment[]
-  createdAt   DateTime               @default(now()) @map("created_at")
-  updatedAt   DateTime               @updatedAt @map("updated_at")
+  createdAt           DateTime               @default(now()) @map("created_at")
+  updatedAt           DateTime               @updatedAt @map("updated_at")
 
   @@map("hr_departments")
 }
 
 model HrEmployee {
-  id                     String           @id @default(uuid())
-  matricule              String           @unique
-  firstName              String           @map("first_name")
-  lastName               String           @map("last_name")
-  /** Small data-URL thumbnail (resized client-side) */
-  photo                  String?
-  birthDate              DateTime?        @map("birth_date") @db.Date
-  phone                  String?
-  address                String?
-  nationalIdNumber       String?          @map("national_id_number")
-  nationalIdIssuedAt     DateTime?        @map("national_id_issued_at") @db.Date
-  nationalIdIssuedBy     String?          @map("national_id_issued_by")
-  socialSecurityNumber   String?          @map("social_security_number")
-  emergencyContactName   String?          @map("emergency_contact_name")
-  emergencyContactPhone  String?          @map("emergency_contact_phone")
-  emergencyContactRelation String?        @map("emergency_contact_relation")
-  jobTitle               String?          @map("job_title")
-  departmentId           String?          @map("department_id")
-  department             HrDepartment?    @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  workSite               String?          @map("work_site")
-  hireDate               DateTime         @map("hire_date") @db.Date
-  status                 HrEmployeeStatus @default(ACTIVE)
-  leftAt                 DateTime?        @map("left_at") @db.Date
-  leftReason             String?          @map("left_reason")
-  /** CASH | BANK_TRANSFER | CCP | CHEQUE */
-  paymentMethod          String           @default("CASH") @map("payment_method")
-  bankAccount            String?          @map("bank_account")
-  userId                 String?          @unique @map("user_id")
-  user                   User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
-  notes                  String?
-  archivedAt             DateTime?        @map("archived_at")
-  createdById            String?          @map("created_by_id")
-  contracts              HrContract[]
-  scheduleAssignments    HrScheduleAssignment[]
-  deviceMappings         HrAttendanceDeviceUser[]
-  attendanceEvents       HrAttendanceEvent[]
-  attendanceDays         HrAttendanceDay[]
-  attendanceCorrections  HrAttendanceCorrection[]
-  leaveEntitlements      HrLeaveEntitlement[]
-  leaveRequests          HrLeaveRequest[]
-  sickLeaves             HrSickLeave[]
-  absences               HrAbsence[]
-  overtimes              HrOvertime[]
-  advances               HrAdvance[]
-  loans                  HrLoan[]
-  bonuses                HrBonus[]
-  deductions             HrDeduction[]
-  payslips               HrPayslip[]
-  salaryPayments         HrSalaryPayment[]
-  expenses               HrExpense[]
-  createdAt              DateTime         @default(now()) @map("created_at")
-  updatedAt              DateTime         @updatedAt @map("updated_at")
+  id                       String                   @id @default(uuid())
+  matricule                String                   @unique
+  firstName                String                   @map("first_name")
+  lastName                 String                   @map("last_name")
+  /**
+   * Small data-URL thumbnail (resized client-side)
+   */
+  photo                    String?
+  birthDate                DateTime?                @map("birth_date") @db.Date
+  phone                    String?
+  address                  String?
+  nationalIdNumber         String?                  @map("national_id_number")
+  nationalIdIssuedAt       DateTime?                @map("national_id_issued_at") @db.Date
+  nationalIdIssuedBy       String?                  @map("national_id_issued_by")
+  socialSecurityNumber     String?                  @map("social_security_number")
+  emergencyContactName     String?                  @map("emergency_contact_name")
+  emergencyContactPhone    String?                  @map("emergency_contact_phone")
+  emergencyContactRelation String?                  @map("emergency_contact_relation")
+  jobTitle                 String?                  @map("job_title")
+  departmentId             String?                  @map("department_id")
+  department               HrDepartment?            @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  workSite                 String?                  @map("work_site")
+  hireDate                 DateTime                 @map("hire_date") @db.Date
+  status                   HrEmployeeStatus         @default(ACTIVE)
+  leftAt                   DateTime?                @map("left_at") @db.Date
+  leftReason               String?                  @map("left_reason")
+  /**
+   * CASH | BANK_TRANSFER | CCP | CHEQUE
+   */
+  paymentMethod            String                   @default("CASH") @map("payment_method")
+  bankAccount              String?                  @map("bank_account")
+  userId                   String?                  @unique @map("user_id")
+  user                     User?                    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  notes                    String?
+  archivedAt               DateTime?                @map("archived_at")
+  createdById              String?                  @map("created_by_id")
+  contracts                HrContract[]
+  scheduleAssignments      HrScheduleAssignment[]
+  deviceMappings           HrAttendanceDeviceUser[]
+  attendanceEvents         HrAttendanceEvent[]
+  attendanceDays           HrAttendanceDay[]
+  attendanceCorrections    HrAttendanceCorrection[]
+  leaveEntitlements        HrLeaveEntitlement[]
+  leaveRequests            HrLeaveRequest[]
+  sickLeaves               HrSickLeave[]
+  absences                 HrAbsence[]
+  overtimes                HrOvertime[]
+  advances                 HrAdvance[]
+  loans                    HrLoan[]
+  bonuses                  HrBonus[]
+  deductions               HrDeduction[]
+  payslips                 HrPayslip[]
+  salaryPayments           HrSalaryPayment[]
+  expenses                 HrExpense[]
+  createdAt                DateTime                 @default(now()) @map("created_at")
+  updatedAt                DateTime                 @updatedAt @map("updated_at")
 
   @@index([status])
   @@index([departmentId])
@@ -1263,24 +1333,32 @@ model HrEmployee {
   @@map("hr_employees")
 }
 
-/** Contract history — a salary change is a new contract/amendment, never an in-place rewrite once paid. */
+/**
+ * Contract history — a salary change is a new contract/amendment, never an in-place rewrite once paid.
+ */
 model HrContract {
   id                String        @id @default(uuid())
   employeeId        String        @map("employee_id")
   employee          HrEmployee    @relation(fields: [employeeId], references: [id])
-  /** CDI | CDD | SEASONAL | PART_TIME | TRIAL | INTERNSHIP | OTHER */
+  /**
+   * CDI | CDD | SEASONAL | PART_TIME | TRIAL | INTERNSHIP | OTHER
+   */
   contractType      String        @map("contract_type")
   startDate         DateTime      @map("start_date") @db.Date
   endDate           DateTime?     @map("end_date") @db.Date
   trialEndDate      DateTime?     @map("trial_end_date") @db.Date
   salaryMode        HrSalaryMode  @default(MONTHLY) @map("salary_mode")
-  /** Monthly amount, daily rate or hourly rate depending on salaryMode */
+  /**
+   * Monthly amount, daily rate or hourly rate depending on salaryMode
+   */
   baseSalary        Decimal       @map("base_salary") @db.Decimal(14, 2)
   weeklyHours       Decimal       @default(40) @map("weekly_hours") @db.Decimal(5, 2)
   jobTitle          String?       @map("job_title")
   departmentId      String?       @map("department_id")
   department        HrDepartment? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  /** ACTIVE | ENDED | TERMINATED */
+  /**
+   * ACTIVE | ENDED | TERMINATED
+   */
   status            String        @default("ACTIVE")
   terminatedAt      DateTime?     @map("terminated_at") @db.Date
   terminationReason String?       @map("termination_reason")
@@ -1302,7 +1380,9 @@ model HrWorkSchedule {
   name         String
   description  String?
   isActive     Boolean                @default(true) @map("is_active")
-  /** Unpaid break deducted from worked time on continuous days (minutes) */
+  /**
+   * Unpaid break deducted from worked time on continuous days (minutes)
+   */
   breakMinutes Int                    @default(0) @map("break_minutes")
   segments     HrScheduleSegment[]
   assignments  HrScheduleAssignment[]
@@ -1312,12 +1392,16 @@ model HrWorkSchedule {
   @@map("hr_work_schedules")
 }
 
-/** One working block on a weekday. endMinute <= startMinute ⇒ the block ends the next day (night shift). */
+/**
+ * One working block on a weekday. endMinute <= startMinute ⇒ the block ends the next day (night shift).
+ */
 model HrScheduleSegment {
   id          String         @id @default(uuid())
   scheduleId  String         @map("schedule_id")
   schedule    HrWorkSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
-  /** 0 = Sunday … 6 = Saturday */
+  /**
+   * 0 = Sunday … 6 = Saturday
+   */
   weekday     Int
   startMinute Int            @map("start_minute")
   endMinute   Int            @map("end_minute")
@@ -1327,7 +1411,9 @@ model HrScheduleSegment {
   @@map("hr_schedule_segments")
 }
 
-/** Employee or department schedule for a date range; isOverride = temporary override. */
+/**
+ * Employee or department schedule for a date range; isOverride = temporary override.
+ */
 model HrScheduleAssignment {
   id           String         @id @default(uuid())
   scheduleId   String         @map("schedule_id")
@@ -1358,50 +1444,68 @@ model HrHoliday {
   @@map("hr_holidays")
 }
 
-/** Physical attendance terminal (ZKTeco or other) — provider decides how events arrive. */
+/**
+ * Physical attendance terminal (ZKTeco or other) — provider decides how events arrive.
+ */
 model HrAttendanceDevice {
-  id                    String    @id @default(uuid())
+  id                    String                   @id @default(uuid())
   name                  String
   model                 String?
-  serialNumber          String?   @unique @map("serial_number")
-  ipAddress             String?   @map("ip_address")
+  serialNumber          String?                  @unique @map("serial_number")
+  ipAddress             String?                  @map("ip_address")
   port                  Int?
-  /** ZKTECO_ADMS | ZKTECO_TCP | ZKTECO_FILE */
+  /**
+   * ZKTECO_ADMS | ZKTECO_TCP | ZKTECO_FILE
+   */
   provider              String
-  /** Numeric communication key for the TCP SDK protocol (0 = none) */
-  commKey               String?   @map("comm_key")
+  /**
+   * Numeric communication key for the TCP SDK protocol (0 = none)
+   */
+  commKey               String?                  @map("comm_key")
   location              String?
-  isEnabled             Boolean   @default(true) @map("is_enabled")
-  /** Device clock offset from UTC — Algeria = +60 */
-  timezoneOffsetMinutes Int       @default(60) @map("timezone_offset_minutes")
-  /** Column positions for exported attendance files (USB) */
-  fileColumnMap         Json?     @map("file_column_map")
-  syncIntervalMinutes   Int       @default(0) @map("sync_interval_minutes")
-  /** UNKNOWN | ONLINE | SYNCING | OFFLINE | ERROR */
-  status                String    @default("UNKNOWN")
-  lastConnectionAt      DateTime? @map("last_connection_at")
-  lastSyncAt            DateTime? @map("last_sync_at")
-  lastSuccessfulSyncAt  DateTime? @map("last_successful_sync_at")
-  lastError             String?   @map("last_error")
-  /** ADMS ATTLOGStamp cursor reported back to the device */
-  lastLogStamp          String?   @map("last_log_stamp")
-  lastEventAt           DateTime? @map("last_event_at")
-  deviceInfo            Json?     @map("device_info")
-  lastDiagnostic        Json?     @map("last_diagnostic")
-  lastDiagnosticAt      DateTime? @map("last_diagnostic_at")
-  /** Set when the first real punch from this terminal was imported */
-  firstEventImportedAt  DateTime? @map("first_event_imported_at")
+  isEnabled             Boolean                  @default(true) @map("is_enabled")
+  /**
+   * Device clock offset from UTC — Algeria = +60
+   */
+  timezoneOffsetMinutes Int                      @default(60) @map("timezone_offset_minutes")
+  /**
+   * Column positions for exported attendance files (USB)
+   */
+  fileColumnMap         Json?                    @map("file_column_map")
+  syncIntervalMinutes   Int                      @default(0) @map("sync_interval_minutes")
+  /**
+   * UNKNOWN | ONLINE | SYNCING | OFFLINE | ERROR
+   */
+  status                String                   @default("UNKNOWN")
+  lastConnectionAt      DateTime?                @map("last_connection_at")
+  lastSyncAt            DateTime?                @map("last_sync_at")
+  lastSuccessfulSyncAt  DateTime?                @map("last_successful_sync_at")
+  lastError             String?                  @map("last_error")
+  /**
+   * ADMS ATTLOGStamp cursor reported back to the device
+   */
+  lastLogStamp          String?                  @map("last_log_stamp")
+  lastEventAt           DateTime?                @map("last_event_at")
+  deviceInfo            Json?                    @map("device_info")
+  lastDiagnostic        Json?                    @map("last_diagnostic")
+  lastDiagnosticAt      DateTime?                @map("last_diagnostic_at")
+  /**
+   * Set when the first real punch from this terminal was imported
+   */
+  firstEventImportedAt  DateTime?                @map("first_event_imported_at")
   notes                 String?
   userMappings          HrAttendanceDeviceUser[]
   events                HrAttendanceEvent[]
   syncLogs              HrAttendanceSyncLog[]
-  createdAt             DateTime  @default(now()) @map("created_at")
-  updatedAt             DateTime  @updatedAt @map("updated_at")
+  createdAt             DateTime                 @default(now()) @map("created_at")
+  updatedAt             DateTime                 @updatedAt @map("updated_at")
 
   @@map("hr_attendance_devices")
 }
 
-/** Stable mapping Oilix employee ↔ user/PIN stored in the terminal (never by name). */
+/**
+ * Stable mapping Oilix employee ↔ user/PIN stored in the terminal (never by name).
+ */
 model HrAttendanceDeviceUser {
   id             String             @id @default(uuid())
   deviceId       String             @map("device_id")
@@ -1423,9 +1527,13 @@ model HrAttendanceSyncLog {
   deviceId       String?             @map("device_id")
   device         HrAttendanceDevice? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
   provider       String
-  /** MANUAL | SCHEDULED | PUSH | FILE | DIAGNOSTIC */
+  /**
+   * MANUAL | SCHEDULED | PUSH | FILE | DIAGNOSTIC
+   */
   trigger        String
-  /** RUNNING | SUCCESS | FAILED | REJECTED */
+  /**
+   * RUNNING | SUCCESS | FAILED | REJECTED
+   */
   status         String
   startedAt      DateTime            @default(now()) @map("started_at")
   finishedAt     DateTime?           @map("finished_at")
@@ -1456,7 +1564,9 @@ model HrAttendanceEvent {
   dedupeKey       String               @unique @map("dedupe_key")
   deviceId        String?              @map("device_id")
   device          HrAttendanceDevice?  @relation(fields: [deviceId], references: [id], onDelete: SetNull)
-  /** ADMS_PUSH | FILE_IMPORT | TCP_PULL */
+  /**
+   * ADMS_PUSH | FILE_IMPORT | TCP_PULL
+   */
   source          String
   deviceUserId    String               @map("device_user_id")
   employeeId      String?              @map("employee_id")
@@ -1466,7 +1576,9 @@ model HrAttendanceEvent {
   deviceLocalTime String               @map("device_local_time")
   punchState      Int?                 @map("punch_state")
   verifyCode      Int?                 @map("verify_code")
-  /** FINGERPRINT | CARD | PIN | FACE | PALM | OTHER | UNKNOWN */
+  /**
+   * FINGERPRINT | CARD | PIN | FACE | PALM | OTHER | UNKNOWN
+   */
   verifyMethod    String               @map("verify_method")
   workCode        String?              @map("work_code")
   rawLine         String?              @map("raw_line")
@@ -1481,7 +1593,9 @@ model HrAttendanceEvent {
   @@map("hr_attendance_events")
 }
 
-/** Processed attendance (one row per employee/day) — recomputed from raw events + corrections. */
+/**
+ * Processed attendance (one row per employee/day) — recomputed from raw events + corrections.
+ */
 model HrAttendanceDay {
   id                    String     @id @default(uuid())
   employeeId            String     @map("employee_id")
@@ -1528,7 +1642,9 @@ model HrAttendanceDay {
   @@map("hr_attendance_days")
 }
 
-/** Manual correction of the PROCESSED layer — raw events are never modified. */
+/**
+ * Manual correction of the PROCESSED layer — raw events are never modified.
+ */
 model HrAttendanceCorrection {
   id            String     @id @default(uuid())
   employeeId    String     @map("employee_id")
@@ -1536,7 +1652,9 @@ model HrAttendanceCorrection {
   date          DateTime   @db.Date
   checkIn       DateTime?  @map("check_in")
   checkOut      DateTime?  @map("check_out")
-  /** Optional status override, e.g. PRESENT when the terminal was offline */
+  /**
+   * Optional status override, e.g. PRESENT when the terminal was offline
+   */
   status        String?
   reason        String
   oldValue      Json?      @map("old_value")
@@ -1627,7 +1745,9 @@ model HrSickLeave {
   attachmentName   String?          @map("attachment_name")
   notes            String?
   status           HrApprovalStatus @default(PENDING)
-  /** UNPAID | PAID | PARTIAL — employer payroll treatment */
+  /**
+   * UNPAID | PAID | PARTIAL — employer payroll treatment
+   */
   payrollTreatment String           @default("UNPAID") @map("payroll_treatment")
   paidPercent      Decimal          @default(0) @map("paid_percent") @db.Decimal(5, 2)
   createdById      String?          @map("created_by_id")
@@ -1686,19 +1806,25 @@ model HrAbsence {
   @@map("hr_absences")
 }
 
-/** Calculated overtime (from attendance) vs approved overtime (what payroll may pay). */
+/**
+ * Calculated overtime (from attendance) vs approved overtime (what payroll may pay).
+ */
 model HrOvertime {
   id                String           @id @default(uuid())
   employeeId        String           @map("employee_id")
   employee          HrEmployee       @relation(fields: [employeeId], references: [id])
   date              DateTime         @db.Date
-  /** CALCULATED | MANUAL */
+  /**
+   * CALCULATED | MANUAL
+   */
   source            String
   calculatedMinutes Int              @default(0) @map("calculated_minutes")
   requestedMinutes  Int              @map("requested_minutes")
   approvedMinutes   Int?             @map("approved_minutes")
   multiplier        Decimal          @db.Decimal(5, 2)
-  /** WORKDAY | REST_DAY | HOLIDAY */
+  /**
+   * WORKDAY | REST_DAY | HOLIDAY
+   */
   ruleCode          String           @default("WORKDAY") @map("rule_code")
   reason            String?
   status            HrApprovalStatus @default(PENDING)
@@ -1717,14 +1843,18 @@ model HrOvertime {
   @@map("hr_overtimes")
 }
 
-/** Salary advance (تسبيق) — deducted once by a validated payslip. */
+/**
+ * Salary advance (تسبيق) — deducted once by a validated payslip.
+ */
 model HrAdvance {
   id                String               @id @default(uuid())
   employeeId        String               @map("employee_id")
   employee          HrEmployee           @relation(fields: [employeeId], references: [id])
   amount            Decimal              @db.Decimal(14, 2)
   date              DateTime             @db.Date
-  /** CASH_REGISTER | CASH | BANK_TRANSFER | CCP | CHEQUE */
+  /**
+   * CASH_REGISTER | CASH | BANK_TRANSFER | CCP | CHEQUE
+   */
   paymentMethod     String               @map("payment_method")
   cashRegisterId    String?              @map("cash_register_id")
   cashRegister      CashRegister?        @relation(fields: [cashRegisterId], references: [id], onDelete: SetNull)
@@ -1734,7 +1864,9 @@ model HrAdvance {
   reference         String?
   deductYear        Int                  @map("deduct_year")
   deductMonth       Int                  @map("deduct_month")
-  /** OPEN | DEDUCTED | CANCELLED */
+  /**
+   * OPEN | DEDUCTED | CANCELLED
+   */
   status            String               @default("OPEN")
   deductedPayslipId String?              @map("deducted_payslip_id")
   deductedPayslip   HrPayslip?           @relation(fields: [deductedPayslipId], references: [id], onDelete: SetNull)
@@ -1770,7 +1902,9 @@ model HrLoan {
   cashSession       CashRegisterSession? @relation(fields: [cashSessionId], references: [id], onDelete: SetNull)
   cashRegisterName  String?              @map("cash_register_name")
   reference         String?
-  /** ACTIVE | COMPLETED | CANCELLED */
+  /**
+   * ACTIVE | COMPLETED | CANCELLED
+   */
   status            String               @default("ACTIVE")
   notes             String?
   idempotencyKey    String?              @unique @map("idempotency_key")
@@ -1793,7 +1927,9 @@ model HrLoanRepayment {
   payslip       HrPayslip? @relation(fields: [payslipId], references: [id], onDelete: SetNull)
   amount        Decimal    @db.Decimal(14, 2)
   date          DateTime   @db.Date
-  /** PAYROLL | MANUAL */
+  /**
+   * PAYROLL | MANUAL
+   */
   source        String
   notes         String?
   createdById   String?    @map("created_by_id")
@@ -1804,12 +1940,16 @@ model HrLoanRepayment {
   @@map("hr_loan_repayments")
 }
 
-/** Primes & indemnités (BONUS | ALLOWANCE) for a payroll month. */
+/**
+ * Primes & indemnités (BONUS | ALLOWANCE) for a payroll month.
+ */
 model HrBonus {
   id            String           @id @default(uuid())
   employeeId    String           @map("employee_id")
   employee      HrEmployee       @relation(fields: [employeeId], references: [id])
-  /** BONUS | ALLOWANCE */
+  /**
+   * BONUS | ALLOWANCE
+   */
   category      String           @default("BONUS")
   bonusType     String           @map("bonus_type")
   amount        Decimal          @db.Decimal(14, 2)
@@ -1832,7 +1972,9 @@ model HrBonus {
   @@map("hr_bonuses")
 }
 
-/** Manual deductions (retenues). Automatic ones (absence/late) are computed by payroll. */
+/**
+ * Manual deductions (retenues). Automatic ones (absence/late) are computed by payroll.
+ */
 model HrDeduction {
   id            String           @id @default(uuid())
   employeeId    String           @map("employee_id")
@@ -1865,7 +2007,9 @@ model HrPayrollPeriod {
   status           HrPayrollStatus   @default(DRAFT)
   startDate        DateTime          @map("start_date") @db.Date
   endDate          DateTime          @map("end_date") @db.Date
-  /** HR policy in force when the period was validated */
+  /**
+   * HR policy in force when the period was validated
+   */
   settingsSnapshot Json?             @map("settings_snapshot")
   employeeCount    Int               @default(0) @map("employee_count")
   totalGross       Decimal           @default(0) @map("total_gross") @db.Decimal(14, 2)
@@ -1896,14 +2040,18 @@ model HrPayrollPeriod {
   @@map("hr_payroll_periods")
 }
 
-/** Bulletin de paie — every value is a snapshot; validated rows are never recomputed. */
+/**
+ * Bulletin de paie — every value is a snapshot; validated rows are never recomputed.
+ */
 model HrPayslip {
   id                String            @id @default(uuid())
   periodId          String            @map("period_id")
   period            HrPayrollPeriod   @relation(fields: [periodId], references: [id])
   employeeId        String            @map("employee_id")
   employee          HrEmployee        @relation(fields: [employeeId], references: [id])
-  /** CALCULATED | VALIDATED */
+  /**
+   * CALCULATED | VALIDATED
+   */
   status            String            @default("CALCULATED")
   employeeSnapshot  Json              @map("employee_snapshot")
   contractId        String?           @map("contract_id")
@@ -1917,7 +2065,9 @@ model HrPayslip {
   totalDeductions   Decimal           @map("total_deductions") @db.Decimal(14, 2)
   netSalary         Decimal           @map("net_salary") @db.Decimal(14, 2)
   paidAmount        Decimal           @default(0) @map("paid_amount") @db.Decimal(14, 2)
-  /** UNPAID | PARTIAL | PAID */
+  /**
+   * UNPAID | PARTIAL | PAID
+   */
   paymentStatus     String            @default("UNPAID") @map("payment_status")
   warnings          Json?
   calculatedAt      DateTime          @default(now()) @map("calculated_at")
@@ -1942,7 +2092,9 @@ model HrPayslipLine {
   id          String    @id @default(uuid())
   payslipId   String    @map("payslip_id")
   payslip     HrPayslip @relation(fields: [payslipId], references: [id], onDelete: Cascade)
-  /** EARNING | DEDUCTION */
+  /**
+   * EARNING | DEDUCTION
+   */
   kind        String
   code        String
   label       String
@@ -1960,7 +2112,9 @@ model HrPayslipLine {
   @@map("hr_payslip_lines")
 }
 
-/** Actual money paid — separate from payroll calculation. Cash payments post once to the register. */
+/**
+ * Actual money paid — separate from payroll calculation. Cash payments post once to the register.
+ */
 model HrSalaryPayment {
   id               String               @id @default(uuid())
   payslipId        String               @map("payslip_id")
@@ -1979,7 +2133,9 @@ model HrSalaryPayment {
   cashRegisterName String?              @map("cash_register_name")
   reference        String?
   notes            String?
-  /** POSTED | CANCELLED */
+  /**
+   * POSTED | CANCELLED
+   */
   status           String               @default("POSTED")
   idempotencyKey   String               @unique @map("idempotency_key")
   paidById         String               @map("paid_by_id")
@@ -1997,7 +2153,9 @@ model HrSalaryPayment {
   @@map("hr_salary_payments")
 }
 
-/** Other personnel costs. Salaries/advances/loans are NOT re-entered here (reported from their own tables). */
+/**
+ * Other personnel costs. Salaries/advances/loans are NOT re-entered here (reported from their own tables).
+ */
 model HrExpense {
   id               String               @id @default(uuid())
   category         String
@@ -2013,7 +2171,9 @@ model HrExpense {
   cashSession      CashRegisterSession? @relation(fields: [cashSessionId], references: [id], onDelete: SetNull)
   cashRegisterName String?              @map("cash_register_name")
   reference        String?
-  /** POSTED | CANCELLED */
+  /**
+   * POSTED | CANCELLED
+   */
   status           String               @default("POSTED")
   idempotencyKey   String?              @unique @map("idempotency_key")
   createdById      String?              @map("created_by_id")
@@ -2028,4 +2188,85 @@ model HrExpense {
   @@index([date])
   @@index([category])
   @@map("hr_expenses")
+}
+
+// ─── Mill operator assistance (مساعدة المشغّل الرئيسي) ──────────────────────
+// An assistant collects money on the primary operator's behalf from another workstation.
+// Payments stay the only revenue records; a session only groups them and tracks the
+// physical handover of the collected cash. A handover is an internal transfer, never income.
+
+enum MillAssistanceStatus {
+  ACTIVE
+  AWAITING_CONFIRMATION
+  CONFIRMED
+  DISCREPANCY
+}
+
+model MillAssistanceSession {
+  id                  String               @id @default(uuid())
+  seasonId            String               @map("season_id")
+  season              Season               @relation(fields: [seasonId], references: [id])
+  sessionNumber       Int                  @map("session_number")
+  status              MillAssistanceStatus @default(ACTIVE)
+  primaryOperatorId   String               @map("primary_operator_id")
+  primaryOperator     User                 @relation("MillAssistPrimary", fields: [primaryOperatorId], references: [id])
+  assistantId         String               @map("assistant_id")
+  assistant           User                 @relation("MillAssistAssistant", fields: [assistantId], references: [id])
+  assistantDeviceId   String?              @map("assistant_device_id")
+  assistantDevice     Device?              @relation("MillAssistAssistantDevice", fields: [assistantDeviceId], references: [id])
+  primaryDeviceId     String?              @map("primary_device_id")
+  primaryDevice       Device?              @relation("MillAssistPrimaryDevice", fields: [primaryDeviceId], references: [id])
+  /**
+   * Name snapshots so the handover receipt stays accurate after renames
+   */
+  primaryOperatorName String?              @map("primary_operator_name")
+  assistantName       String?              @map("assistant_name")
+  assistantDeviceName String?              @map("assistant_device_name")
+  startedAt           DateTime             @default(now()) @map("started_at")
+  closedAt            DateTime?            @map("closed_at")
+  /**
+   * Totals frozen when the assistant closes the session
+   */
+  operationsCount     Int                  @default(0) @map("operations_count")
+  paymentsCount       Int                  @default(0) @map("payments_count")
+  totalCharged        Decimal              @default(0) @map("total_charged") @db.Decimal(14, 2)
+  totalCollected      Decimal              @default(0) @map("total_collected") @db.Decimal(14, 2)
+  totalCash           Decimal              @default(0) @map("total_cash") @db.Decimal(14, 2)
+  totalNonCash        Decimal              @default(0) @map("total_non_cash") @db.Decimal(14, 2)
+  totalOutstanding    Decimal              @default(0) @map("total_outstanding") @db.Decimal(14, 2)
+  /**
+   * Cash the assistant must hand over = totalCash
+   */
+  expectedHandover    Decimal              @default(0) @map("expected_handover") @db.Decimal(14, 2)
+  /**
+   * Cash the assistant counted and declared
+   */
+  declaredHandover    Decimal?             @map("declared_handover") @db.Decimal(14, 2)
+  /**
+   * declared − expected (negative = missing cash)
+   */
+  difference          Decimal              @default(0) @db.Decimal(14, 2)
+  discrepancyNote     String?              @map("discrepancy_note")
+  confirmedAt         DateTime?            @map("confirmed_at")
+  confirmedById       String?              @map("confirmed_by_id")
+  confirmedBy         User?                @relation("MillAssistConfirmedBy", fields: [confirmedById], references: [id])
+  /**
+   * Cash the primary operator actually counted on receipt (may differ from declared)
+   */
+  receivedHandover    Decimal?             @map("received_handover") @db.Decimal(14, 2)
+  resolvedAt          DateTime?            @map("resolved_at")
+  resolvedById        String?              @map("resolved_by_id")
+  resolvedBy          User?                @relation("MillAssistResolvedBy", fields: [resolvedById], references: [id])
+  resolutionNote      String?              @map("resolution_note")
+  notes               String?
+  payments            Payment[]
+  pressingRecords     PressingRecord[]
+  createdAt           DateTime             @default(now()) @map("created_at")
+  updatedAt           DateTime             @updatedAt @map("updated_at")
+
+  @@unique([seasonId, sessionNumber])
+  @@index([assistantId, status])
+  @@index([primaryOperatorId, status])
+  @@index([seasonId, status])
+  @@map("mill_assistance_sessions")
 }

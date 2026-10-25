@@ -16,6 +16,7 @@ import { formatNumber, formatDate, cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ModulePageHero } from '@/components/ui/module-page-hero';
+import { HandoverSummary } from '@/components/assistance/handover-summary';
 
 type DailyColumn = {
   oliveType: string;
@@ -149,6 +150,8 @@ export default function FinancePage() {
             tone="violet"
           />
         </div>
+
+        <HandoverSummary from={dateFrom} to={dateTo} />
 
         <div className="module-panel-enter grid gap-5 xl:grid-cols-[1fr_300px]">
           <div className="grid gap-4 md:grid-cols-3">

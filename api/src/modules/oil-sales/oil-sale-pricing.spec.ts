@@ -295,3 +295,50 @@ describe('walk-in sale debt rule', () => {
     ).toBe(null);
   });
 });
+
+describe('assistance travels with its own line through pricing and reports', () => {
+  it('server pricing keeps each line assistance while replacing prices', () => {
+    const { amounts, lines } = priceAndTotal([
+      { kind: 'LOOSE', oilType: OilType.GREEN, quantityL: 40, assistancePerLitre: 50 },
+      { kind: 'LOOSE', oilType: OilType.TAIEB, quantityL: 40, assistancePerLitre: 30 },
+    ]);
+    expect(lines.map((l) => [l.unitPrice, l.assistancePerLitre])).toEqual([
+      [800, 50],
+      [1000, 30],
+    ]);
+    expect(amounts.lines.map((l) => l.lineAssistance)).toEqual([2000, 1200]);
+    expect(amounts.totalAssistance).toBe(3200);
+    expect(amounts.finalAmount).toBe(72000 - 3200);
+  });
+
+  it('report split attributes each line its own assistance exactly', () => {
+    const shares = splitSaleByOil({
+      quantityL: 80,
+      grossAmount: 76000,
+      totalAssistance: 3200,
+      assistancePerLitreTotal: 3200,
+      items: [
+        {
+          oilSource: 'STORED',
+          oilType: 'GREEN',
+          quantityL: 40,
+          lineGross: 36000,
+          assistancePerLitre: 50,
+          lineAssistance: 2000,
+        },
+        {
+          oilSource: 'STORED',
+          oilType: 'TAIEB',
+          quantityL: 40,
+          lineGross: 40000,
+          assistancePerLitre: 30,
+          lineAssistance: 1200,
+        },
+      ],
+    });
+    expect(shares.map((s) => [s.oilType, s.assistance, s.net])).toEqual([
+      ['GREEN', 2000, 34000],
+      ['TAIEB', 1200, 38800],
+    ]);
+  });
+});

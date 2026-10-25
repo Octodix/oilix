@@ -176,7 +176,17 @@ export function OilSaleClientReceiptDocument({ data }: { data: OilSaleReceiptPay
             {lines.map((item, i) => (
               <tr key={i}>
                 <td className="oil-client-receipt-td tabular-nums">{i + 1}</td>
-                <td className="oil-client-receipt-td font-bold">{itemDesignation(item)}</td>
+                <td className="oil-client-receipt-td font-bold">
+                  {itemDesignation(item)}
+                  {Number(item.lineAssistance ?? 0) > 0 ? (
+                    <span className="block text-[9px] font-normal opacity-80">
+                      مساعدة −{formatMoney(Number(item.lineAssistance))}
+                      {Number(item.assistancePerLitre ?? 0) > 0
+                        ? ` (${formatMoney(Number(item.assistancePerLitre))}/ل)`
+                        : ''}
+                    </span>
+                  ) : null}
+                </td>
                 <td className="oil-client-receipt-td tabular-nums">{itemQty(item)}</td>
                 <td className="oil-client-receipt-td tabular-nums">{itemUnitPrice(item)}</td>
                 <td className="oil-client-receipt-td tabular-nums">

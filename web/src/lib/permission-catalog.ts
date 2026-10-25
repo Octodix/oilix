@@ -25,6 +25,13 @@ export const MILL_PERMISSIONS = [
   'BACKUP_RESTORE',
   'MILL_DEVICES_VIEW',
   'MILL_DEVICES_MANAGE',
+  // Operator assistance (مساعدة المشغّل الرئيسي) and cash handover
+  'MILL_ASSIST_START',
+  'MILL_ASSIST_CLOSE',
+  'MILL_ASSIST_PRINT',
+  'MILL_ASSIST_VIEW_ALL',
+  'MILL_ASSIST_CONFIRM',
+  'MILL_ASSIST_RESOLVE',
 ] as const;
 
 export const OIL_SALES_PERMISSIONS = [
@@ -170,6 +177,10 @@ export const PERMISSION_ALIASES: Record<string, string[]> = {
   ],
   OIL_SALES_DEVICES_MANAGE: ['OIL_SALES_DEVICES_VIEW'],
   MILL_DEVICES_MANAGE: ['MILL_DEVICES_VIEW'],
+  MILL_ASSIST_CLOSE: ['MILL_ASSIST_START'],
+  MILL_ASSIST_PRINT: ['MILL_ASSIST_START'],
+  MILL_ASSIST_CONFIRM: ['MILL_ASSIST_VIEW_ALL'],
+  MILL_ASSIST_RESOLVE: ['MILL_ASSIST_VIEW_ALL', 'MILL_ASSIST_CONFIRM'],
   HR_EMPLOYEES_CREATE: ['HR_EMPLOYEES_VIEW'],
   HR_EMPLOYEES_EDIT: ['HR_EMPLOYEES_VIEW'],
   HR_EMPLOYEES_ARCHIVE: ['HR_EMPLOYEES_VIEW'],
@@ -270,6 +281,12 @@ export const PERMISSION_MATRIX: PermissionMatrixGroup[] = [
       { key: 'BACKUP_RESTORE', label: 'نسخ احتياطي' },
       { key: 'MILL_DEVICES_VIEW', label: 'عرض الأجهزة' },
       { key: 'MILL_DEVICES_MANAGE', label: 'إدارة الأجهزة' },
+      { key: 'MILL_ASSIST_START', label: 'بدء جلسة مساعدة المشغّل' },
+      { key: 'MILL_ASSIST_CLOSE', label: 'إغلاق جلسة المساعدة وتسليم المداخيل' },
+      { key: 'MILL_ASSIST_PRINT', label: 'طباعة وصل تسليم المداخيل' },
+      { key: 'MILL_ASSIST_VIEW_ALL', label: 'عرض جلسات المساعدين (المشغّل الرئيسي)' },
+      { key: 'MILL_ASSIST_CONFIRM', label: 'تأكيد استلام المداخيل' },
+      { key: 'MILL_ASSIST_RESOLVE', label: 'تسوية فروق التسليم' },
     ],
   },
   {

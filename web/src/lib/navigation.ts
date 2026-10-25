@@ -3,6 +3,7 @@ import {
   ClipboardList,
   Droplets,
   FileSearch,
+  HandCoins,
   LayoutDashboard,
   Leaf,
   Monitor,
@@ -94,6 +95,20 @@ export const APP_NAV: NavSection[] = [
         label: 'اليومية المالية',
         icon: Wallet,
         match: ['/finance'],
+      },
+      {
+        href: '/assistance',
+        label: 'مساعدة المشغّل وتسليم المداخيل',
+        icon: HandCoins,
+        permission: 'MILL_ASSIST_START',
+        match: ['/assistance'],
+      },
+      {
+        href: '/assistance/dashboard',
+        label: 'لوحة المشغّل الرئيسي',
+        icon: UserCog,
+        permission: 'MILL_ASSIST_CONFIRM',
+        match: ['/assistance/dashboard'],
       },
       {
         href: '/print',

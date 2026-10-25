@@ -27,6 +27,8 @@ async function main() {
         Permission.FILTRATION_READ,
         Permission.FILTRATION_WRITE,
         Permission.FINANCE_READ,
+        // Recording a customer payment is part of the operator's counter work (سالك already is).
+        Permission.FINANCE_WRITE,
         Permission.REPORTS_READ,
         Permission.OIL_SALES_READ,
         Permission.OIL_SALES_WRITE,
@@ -65,6 +67,11 @@ async function main() {
         Permission.OIL_SALES_CASH_REGISTER_VIEW_OWN,
         Permission.OIL_SALES_DEVICES_VIEW,
         Permission.MILL_DEVICES_VIEW,
+        // Operators may help the primary operator and hand over what they collected;
+        // confirming a handover stays with the primary operator / admin.
+        Permission.MILL_ASSIST_START,
+        Permission.MILL_ASSIST_CLOSE,
+        Permission.MILL_ASSIST_PRINT,
       ];
 
   const operatorRole = await prisma.role.upsert({

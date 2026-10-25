@@ -19,6 +19,7 @@ import { REALTIME_ENTITIES } from '../realtime/realtime.constants';
 import { RealtimeService } from '../realtime/realtime.service';
 import { SettingsService } from '../settings/settings.service';
 import { attributedDeviceId } from '../devices/device-context';
+import { MillAssistanceService } from '../mill-assistance/mill-assistance.service';
 import { SeasonScopeService } from '../../common/season/season-scope.service';
 import {
   CreatePressingDto,
@@ -51,6 +52,7 @@ export class PressingService {
     private seasonScope: SeasonScopeService,
     private realtime: RealtimeService,
     private notifications: NotificationsService,
+    private assistance: MillAssistanceService,
   ) {}
 
   private clientName(client: { firstName: string; lastName: string }) {
@@ -666,6 +668,9 @@ export class PressingService {
         ? EntryStatus.OIL_COLLECTED
         : EntryStatus.PRESSED;
 
+    // Operations recorded by an assistant stay traceable to their session.
+    const assistanceSessionId = await this.assistance.activeSessionIdFor(userId);
+
     const record = await this.prisma.$transaction(async (tx) => {
       const created = await tx.pressingRecord.create({
         data: {
@@ -675,6 +680,7 @@ export class PressingService {
           treatmentTime: currentTime(),
           userId,
           deviceId: attributedDeviceId(),
+          assistanceSessionId,
           pickupDate: data.oilCollected ? new Date() : undefined,
         },
         include: { oliveEntry: { include: { client: true } } },
@@ -685,6 +691,9 @@ export class PressingService {
       });
       return created;
     });
+    if (data.paid) {
+      await this.recordSettlementPayment(record.id, Number(record.amount), userId, assistanceSessionId);
+    }
 
     const client = record.oliveEntry.client;
     const isExtraction = auditContext === PressingAuditContext.EXTRACTION;
@@ -780,6 +789,15 @@ export class PressingService {
       },
       include: { oliveEntry: { include: { client: true } } },
     });
+
+    if (data.paid === true && !existing.paid) {
+      await this.recordSettlementPayment(
+        id,
+        Number(record.amount),
+        userId,
+        await this.assistance.activeSessionIdFor(userId),
+      );
+    }
 
     const status = nextPaid
       ? EntryStatus.PAID
@@ -927,6 +945,39 @@ export class PressingService {
 
   async markPaid(pressingId: string, userId: string, value = true) {
     return this.update(pressingId, { paid: value }, userId);
+  }
+
+  /**
+   * Marking an operation "سالك" collects its remaining balance in cash. Recording it as a
+   * payment makes the collected amount traceable to the operator (and their assistance
+   * session) instead of being just a flag. Nothing is created when the balance is already
+   * covered, so toggling paid off and on never duplicates money.
+   */
+  private async recordSettlementPayment(
+    pressingRecordId: string,
+    amountDue: number,
+    userId: string,
+    assistanceSessionId: string | null,
+  ) {
+    const agg = await this.prisma.payment.aggregate({
+      where: { pressingRecordId },
+      _sum: { amount: true },
+    });
+    const remaining =
+      Math.round((amountDue - Number(agg._sum.amount ?? 0) + Number.EPSILON) * 100) / 100;
+    if (remaining <= 0) return null;
+    return this.prisma.payment.create({
+      data: {
+        pressingRecordId,
+        amount: remaining,
+        method: null,
+        notes: 'تسوية كاملة (سالك)',
+        paymentTime: currentTime(),
+        userId,
+        deviceId: attributedDeviceId(),
+        assistanceSessionId,
+      },
+    });
   }
 
   async cancelEntry(entryId: string, userId: string, reason?: string) {

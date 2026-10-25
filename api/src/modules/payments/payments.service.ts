@@ -10,6 +10,7 @@ import { clientLabel, formatNum } from '../../common/audit/audit-format';
 import { AuditService } from '../audit/audit.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { attributedDeviceId } from '../devices/device-context';
+import { MillAssistanceService } from '../mill-assistance/mill-assistance.service';
 
 function currentTime(): string {
   return new Date().toLocaleTimeString('ar-DZ', {
@@ -29,6 +30,7 @@ export class PaymentsService {
   constructor(
     private prisma: PrismaService,
     private auditService: AuditService,
+    private assistance: MillAssistanceService,
   ) {}
 
   async create(dto: CreatePaymentDto, userId: string) {
@@ -36,6 +38,8 @@ export class PaymentsService {
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new BadRequestException('مبلغ الدفعة يجب أن يكون أكبر من صفر');
     }
+    // Money collected by an assistant belongs to their ACTIVE assistance session (once, forever).
+    const assistanceSessionId = await this.assistance.activeSessionIdFor(userId);
 
     const payment = await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM pressing_records WHERE id = ${dto.pressingRecordId} FOR UPDATE`;
@@ -67,6 +71,7 @@ export class PaymentsService {
           paymentTime: currentTime(),
           userId,
           deviceId: attributedDeviceId(),
+          assistanceSessionId,
         },
         include: {
           pressingRecord: { include: { oliveEntry: { include: { client: true } } } },

@@ -26,6 +26,9 @@ export type PricingLine = {
   /** Price the client displayed — compared against the authoritative price. */
   unitPrice?: number | null;
   containerPrice?: number | null;
+  /** Cashier-entered assistance of this line (permission-checked by the service). */
+  assistancePerLitre?: number | null;
+  assistanceFixed?: number | null;
 };
 
 export type PricingContainer = {
@@ -126,6 +129,9 @@ export function applyAuthoritativePrices(
         mismatches.push({ index, key, submitted, expected });
       }
     }
+    // Assistance is not a catalog price: it travels with its own line untouched.
+    const assistancePerLitre = Number(line.assistancePerLitre ?? 0) || 0;
+    const assistanceFixed = Number(line.assistanceFixed ?? 0) || 0;
     if (line.kind === 'CONTAINER_ONLY') {
       return {
         key,
@@ -134,6 +140,8 @@ export function applyAuthoritativePrices(
         containerCount: line.containerCount,
         unitPrice: expected,
         containerPrice: expected,
+        assistancePerLitre,
+        assistanceFixed,
       };
     }
     return {
@@ -144,6 +152,8 @@ export function applyAuthoritativePrices(
       quantityL: line.quantityL,
       unitPrice: expected,
       pricingMode: 'PER_LITRE' as const,
+      assistancePerLitre,
+      assistanceFixed,
     };
   });
   return { lines: priced, mismatches };

@@ -1061,6 +1061,8 @@ export class OilSalesService {
         unitPrice: it.unitPrice ?? 0,
         pricingMode: it.pricingMode,
         containerPrice: it.containerPrice,
+        assistancePerLitre: it.assistancePerLitre,
+        assistanceFixed: it.assistanceFixed,
       };
     });
     return computeSaleFromLines(lines, assistance);
@@ -1134,6 +1136,8 @@ export class OilSalesService {
           quantityL: it.quantityL,
           unitPrice: it.unitPrice,
           containerPrice: it.containerPrice,
+          assistancePerLitre: it.assistancePerLitre,
+          assistanceFixed: it.assistanceFixed,
         })),
         settings,
         containers.map((c) => ({
@@ -1182,9 +1186,39 @@ export class OilSalesService {
         quantityL: r.quantityL,
         lineGross: r.lineGross,
         containerCount: r.containerCount,
+        assistancePerLitre: r.assistancePerLitre,
+        assistanceFixed: r.assistanceFixed,
+        lineAssistance: r.lineAssistance,
       };
     });
     return { prepared, amounts };
+  }
+
+  /**
+   * Per-line assistance is a cashier privilege: without the permission the line
+   * must not carry it. `strict` rejects (sale), otherwise the value is dropped (hold).
+   */
+  private guardLineAssistance(
+    items: CreateOilSaleItemDto[],
+    permissions: string[],
+    role: string | undefined,
+    strict: boolean,
+  ): CreateOilSaleItemDto[] {
+    const canPerLitre = hasPermission(permissions, 'OIL_SALES_ASSISTANCE_PER_LITRE', role);
+    const canFixed = hasPermission(permissions, 'OIL_SALES_ASSISTANCE_FIXED', role);
+    return items.map((it) => {
+      const perLitre = Number(it.assistancePerLitre ?? 0);
+      const fixed = Number(it.assistanceFixed ?? 0);
+      if (perLitre > 0 && !canPerLitre) {
+        if (strict) throw new ForbiddenException('ليس لديك صلاحية تطبيق مساعدة لكل لتر');
+        return { ...it, assistancePerLitre: 0 };
+      }
+      if (fixed > 0 && !canFixed) {
+        if (strict) throw new ForbiddenException('ليس لديك صلاحية تطبيق مساعدة ثابتة');
+        return { ...it, assistanceFixed: 0 };
+      }
+      return it;
+    });
   }
 
   // ─── Held sales (قائمة الانتظار) ───────────────────────────
@@ -1264,7 +1298,11 @@ export class OilSalesService {
 
     // Prices are captured server-side; the client's displayed prices are not trusted here.
     const { prepared, amounts } = await this.priceSaleLines(
-      dto.items.map((it) => ({ ...it, unitPrice: undefined, containerPrice: undefined })),
+      this.guardLineAssistance(dto.items, permissions, role, false).map((it) => ({
+        ...it,
+        unitPrice: undefined,
+        containerPrice: undefined,
+      })),
       {},
       { assistanceFixed, assistancePerLitre },
       existingLocks,
@@ -1288,9 +1326,14 @@ export class OilSalesService {
         unitPrice: p.it.unitPrice,
         containerPrice: p.it.containerPrice ?? null,
         lineGross: p.lineGross,
+        assistancePerLitre: p.assistancePerLitre,
+        assistanceFixed: p.assistanceFixed,
+        lineAssistance: p.lineAssistance,
       })),
-      assistanceFixed: amounts.assistanceFixed,
-      assistancePerLitre: amounts.assistancePerLitre,
+      // Sale-level values as submitted (legacy); line assistance lives on each item.
+      assistanceFixed,
+      assistancePerLitre,
+      totalAssistance: amounts.totalAssistance,
       notes: dto.notes?.trim() || null,
     };
 
@@ -1422,7 +1465,7 @@ export class OilSalesService {
 
     const rawItems: CreateOilSaleItemDto[] =
       dto.items?.length
-        ? dto.items
+        ? this.guardLineAssistance(dto.items, permissions, role, true)
         : [
             {
               kind: 'LOOSE',
@@ -1641,6 +1684,9 @@ export class OilSalesService {
               containerPrice:
                 p.it.containerPrice != null ? dec(p.it.containerPrice) : null,
               lineGross: dec(p.lineGross),
+              assistancePerLitre: dec(p.assistancePerLitre),
+              assistanceFixed: dec(p.assistanceFixed),
+              lineAssistance: dec(p.lineAssistance),
               sortOrder: p.idx,
             })),
           },
@@ -2201,6 +2247,8 @@ export class OilSalesService {
           oilType: it.oilType,
           quantityL: num(it.quantityL),
           lineGross: num(it.lineGross),
+          assistancePerLitre: num(it.assistancePerLitre),
+          lineAssistance: num(it.lineAssistance),
         })),
       }).map((share) => ({ ...share, saleId: s.id })),
     );

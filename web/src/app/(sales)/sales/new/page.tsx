@@ -17,11 +17,15 @@ import {
 import { previewSaleFromLines } from '@/lib/sales-math';
 import {
   WALK_IN_CUSTOMER_LABEL,
+  cartLineAssistance,
+  cartLineLitres,
+  cartLineNet,
   cartLineSubtotal,
   cartToApiItems,
   holdItemsToCartLines,
   repriceCart,
   resolveLinePrice,
+  setCartLineAssistance,
   type CartLine,
   type HoldPayloadItem,
   type PriceLocks,
@@ -132,8 +136,10 @@ export default function NewSalePage() {
   const [containerCount, setContainerCount] = useState('1');
   const [looseQty, setLooseQty] = useState('');
   const [lines, setLines] = useState<CartLine[]>([]);
-  const [assistanceFixed, setAssistanceFixed] = useState('0');
-  const [assistancePerLitre, setAssistancePerLitre] = useState('0');
+  // Assistance of the line being composed — it is captured INTO that line when added
+  // and reset afterwards, so the next oil never inherits it.
+  const [draftAssistPerLitre, setDraftAssistPerLitre] = useState('0');
+  const [draftAssistFixed, setDraftAssistFixed] = useState('0');
   const [notes, setNotes] = useState('');
   const [overrideStock, setOverrideStock] = useState(false);
   const [overrideContainerStock, setOverrideContainerStock] = useState(false);
@@ -224,12 +230,24 @@ export default function NewSalePage() {
       ? Number(selectedContainer.capacityL) * Number(containerCount)
       : 0;
 
+  const draftPerLitre = canAssistPerLitre ? Number(draftAssistPerLitre || 0) : 0;
+  const draftFixed = canAssistFixed ? Number(draftAssistFixed || 0) : 0;
+
   const draftLine = useMemo((): CartLine | null => {
     const key = `${uid}-draft`;
+    const draftAssistance = { assistancePerLitre: draftPerLitre, assistanceFixed: draftFixed };
     if (method === 'LOOSE') {
       const qty = Number(looseQty);
       if (!(qty > 0) || oilPrice == null) return null;
-      return { key, kind: 'LOOSE', oilSource, oilType, quantityL: qty, unitPrice: oilPrice };
+      return {
+        key,
+        kind: 'LOOSE',
+        oilSource,
+        oilType,
+        quantityL: qty,
+        unitPrice: oilPrice,
+        ...draftAssistance,
+      };
     }
     if (method === 'CONTAINER') {
       const c = selectedContainer;
@@ -245,6 +263,7 @@ export default function NewSalePage() {
         capacityL: Number(c.capacityL),
         containerCount: count,
         unitPrice: oilPrice,
+        ...draftAssistance,
       };
     }
     const c = selectedContainer;
@@ -260,7 +279,19 @@ export default function NewSalePage() {
       unitPrice: emptyPrice,
       containerPrice: emptyPrice,
     };
-  }, [method, looseQty, oilPrice, emptyPrice, oilSource, oilType, selectedContainer, containerCount, uid]);
+  }, [
+    method,
+    looseQty,
+    oilPrice,
+    emptyPrice,
+    oilSource,
+    oilType,
+    selectedContainer,
+    containerCount,
+    uid,
+    draftPerLitre,
+    draftFixed,
+  ]);
 
   // Cart lines are never repriced from the currently selected oil.
   const composedLines = useMemo(
@@ -268,10 +299,11 @@ export default function NewSalePage() {
     [lines, draftLine],
   );
 
-  const preview = previewSaleFromLines(composedLines, {
-    assistanceFixed: canAssistFixed ? Number(assistanceFixed || 0) : 0,
-    assistancePerLitre: canAssistPerLitre ? Number(assistancePerLitre || 0) : 0,
-  });
+  // Assistance lives on each line (its own litres × its own rate + its own fixed amount).
+  const preview = previewSaleFromLines(composedLines);
+  const draftLineAssistance = draftLine ? cartLineAssistance(draftLine) : 0;
+  const draftLineTooMuchAssistance =
+    draftLine != null && draftLineAssistance > cartLineSubtotal(draftLine);
 
   const debtAllowedHere = canAllowDebt && !!customerId;
   const paidNow = preview
@@ -364,9 +396,26 @@ export default function NewSalePage() {
       toast.error('المخزون غير متوفر');
       return;
     }
+    if (draftLineTooMuchAssistance) {
+      toast.error('مساعدة هذا السطر تتجاوز مبلغه');
+      return;
+    }
     setLines((prev) => [...prev, { ...draftLine, key: `${uid}-${Date.now()}` }]);
     if (method === 'LOOSE') setLooseQty('');
     else setContainerCount('1');
+    // The assistance belongs to the line just added; start the next line clean.
+    setDraftAssistPerLitre('0');
+    setDraftAssistFixed('0');
+  }
+
+  function updateLineAssistance(
+    key: string,
+    field: 'assistancePerLitre' | 'assistanceFixed',
+    raw: string,
+  ) {
+    const n = Number(raw);
+    const value = Number.isFinite(n) && n >= 0 ? n : 0;
+    setLines((prev) => setCartLineAssistance(prev, key, { [field]: value }));
   }
 
   function onQtyKeyDown(e: KeyboardEvent<HTMLInputElement>) {
@@ -379,8 +428,8 @@ export default function NewSalePage() {
     setLines([]);
     setLooseQty('');
     setContainerCount('1');
-    setAssistanceFixed('0');
-    setAssistancePerLitre('0');
+    setDraftAssistPerLitre('0');
+    setDraftAssistFixed('0');
     setNotes('');
     setOverrideStock(false);
     setOverrideContainerStock(false);
@@ -395,8 +444,6 @@ export default function NewSalePage() {
     return {
       customerId: customerId || undefined,
       items: cartToApiItems(composedLines),
-      assistanceFixed: canAssistFixed ? Number(assistanceFixed || 0) : 0,
-      assistancePerLitre: canAssistPerLitre ? Number(assistancePerLitre || 0) : 0,
       notes: notes.trim() || undefined,
     };
   }
@@ -444,8 +491,8 @@ export default function NewSalePage() {
     pickCustomer(
       h.customerId ? { id: h.customerId, name: h.customerName ?? '', phone: h.customerPhone } : null,
     );
-    setAssistanceFixed(String(h.payload.assistanceFixed ?? 0));
-    setAssistancePerLitre(String(h.payload.assistancePerLitre ?? 0));
+    setDraftAssistPerLitre('0');
+    setDraftAssistFixed('0');
     setNotes(h.payload.notes ?? '');
     setLooseQty('');
     setContainerCount('1');
@@ -470,8 +517,6 @@ export default function NewSalePage() {
           customerId: customerId || undefined,
           holdId: activeHold?.id,
           items: cartToApiItems(composedLines),
-          assistanceFixed: canAssistFixed ? Number(assistanceFixed || 0) : 0,
-          assistancePerLitre: canAssistPerLitre ? Number(assistancePerLitre || 0) : 0,
           amountPaid: paidNow,
           notes: notes.trim() || undefined,
           overrideStock,
@@ -867,12 +912,12 @@ export default function NewSalePage() {
                 {canAssistPerLitre ? (
                   <Input
                     id="sale-aid-l"
-                    label="مساعدة باللتر"
+                    label="مساعدة باللتر (هذا السطر)"
                     inputMode="decimal"
-                    value={assistancePerLitre}
-                    onChange={(e) => setAssistancePerLitre(e.target.value)}
-                    onBlur={() => defaultZeroOnBlur(assistancePerLitre, setAssistancePerLitre)}
-                    hint="دج / لتر"
+                    value={draftAssistPerLitre}
+                    onChange={(e) => setDraftAssistPerLitre(e.target.value)}
+                    onBlur={() => defaultZeroOnBlur(draftAssistPerLitre, setDraftAssistPerLitre)}
+                    hint="دج / لتر — لهذا الزيت فقط"
                   />
                 ) : (
                   <div />
@@ -880,12 +925,12 @@ export default function NewSalePage() {
                 {canAssistFixed ? (
                   <Input
                     id="sale-aid-fixed"
-                    label="مساعدة ثابتة"
+                    label="مساعدة ثابتة (هذا السطر)"
                     inputMode="decimal"
-                    value={assistanceFixed}
-                    onChange={(e) => setAssistanceFixed(e.target.value)}
-                    onBlur={() => defaultZeroOnBlur(assistanceFixed, setAssistanceFixed)}
-                    hint="دج"
+                    value={draftAssistFixed}
+                    onChange={(e) => setDraftAssistFixed(e.target.value)}
+                    onBlur={() => defaultZeroOnBlur(draftAssistFixed, setDraftAssistFixed)}
+                    hint="دج — لهذا السطر فقط"
                   />
                 ) : (
                   <div />
@@ -938,22 +983,24 @@ export default function NewSalePage() {
                   />
                   {canAssistPerLitre ? (
                     <Input
-                      label="مساعدة باللتر"
+                      label="مساعدة باللتر (هذا السطر)"
                       inputMode="decimal"
-                      value={assistancePerLitre}
-                      onChange={(e) => setAssistancePerLitre(e.target.value)}
-                      onBlur={() => defaultZeroOnBlur(assistancePerLitre, setAssistancePerLitre)}
+                      value={draftAssistPerLitre}
+                      onChange={(e) => setDraftAssistPerLitre(e.target.value)}
+                      onBlur={() => defaultZeroOnBlur(draftAssistPerLitre, setDraftAssistPerLitre)}
+                      hint="دج / لتر — لهذا الزيت فقط"
                     />
                   ) : (
                     <div />
                   )}
                   {canAssistFixed ? (
                     <Input
-                      label="مساعدة ثابتة"
+                      label="مساعدة ثابتة (هذا السطر)"
                       inputMode="decimal"
-                      value={assistanceFixed}
-                      onChange={(e) => setAssistanceFixed(e.target.value)}
-                      onBlur={() => defaultZeroOnBlur(assistanceFixed, setAssistanceFixed)}
+                      value={draftAssistFixed}
+                      onChange={(e) => setDraftAssistFixed(e.target.value)}
+                      onBlur={() => defaultZeroOnBlur(draftAssistFixed, setDraftAssistFixed)}
+                      hint="دج — لهذا السطر فقط"
                     />
                   ) : (
                     <div />
@@ -1032,15 +1079,23 @@ export default function NewSalePage() {
               </div>
             ) : null}
 
-            {canAssistPerLitre &&
-            showOilFields &&
-            Number(assistancePerLitre || 0) > 0 &&
-            preview &&
-            preview.quantityL > 0 ? (
-              <p className="text-xs font-bold text-amber-900 dark:text-amber-300">
-                مساعدة اللتر: {formatMoney(Number(assistancePerLitre || 0))} دج ×{' '}
-                {formatNumber(preview.quantityL, 1)} لتر ={' '}
-                {formatMoney(preview.assistancePerLitreTotal)} دج
+            {showOilFields && draftLine && draftLineAssistance > 0 ? (
+              <p
+                className={cn(
+                  'text-xs font-bold',
+                  draftLineTooMuchAssistance
+                    ? 'text-red-700'
+                    : 'text-amber-900 dark:text-amber-300',
+                )}
+              >
+                مساعدة هذا السطر:{' '}
+                {draftPerLitre > 0
+                  ? `${formatMoney(draftPerLitre)} دج × ${formatNumber(cartLineLitres(draftLine), 1)} لتر`
+                  : ''}
+                {draftPerLitre > 0 && draftFixed > 0 ? ' + ' : ''}
+                {draftFixed > 0 ? `${formatMoney(draftFixed)} دج ثابتة` : ''}{' '}
+                = {formatMoney(draftLineAssistance)} دج
+                {draftLineTooMuchAssistance ? ' — تتجاوز مبلغ السطر' : ''}
               </p>
             ) : null}
 
@@ -1078,11 +1133,62 @@ export default function NewSalePage() {
                               )} لتر × ${formatMoney(l.unitPrice)} د.ج`
                             : `${formatNumber(Number(l.quantityL ?? 0), 1)} لتر × ${formatMoney(l.unitPrice)} د.ج`}
                       </p>
+                      {l.kind !== 'CONTAINER_ONLY' && (canAssistPerLitre || canAssistFixed) ? (
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                          {canAssistPerLitre ? (
+                            <label className="flex items-center gap-1">
+                              <span className="text-[var(--app-text-dim)]">مساعدة/لتر</span>
+                              <input
+                                className="w-16 rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-1.5 py-0.5 text-right tabular-nums"
+                                inputMode="decimal"
+                                aria-label="مساعدة باللتر لهذا السطر"
+                                value={String(l.assistancePerLitre ?? 0)}
+                                onChange={(e) =>
+                                  updateLineAssistance(l.key, 'assistancePerLitre', e.target.value)
+                                }
+                              />
+                            </label>
+                          ) : null}
+                          {canAssistFixed ? (
+                            <label className="flex items-center gap-1">
+                              <span className="text-[var(--app-text-dim)]">ثابتة</span>
+                              <input
+                                className="w-16 rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-1.5 py-0.5 text-right tabular-nums"
+                                inputMode="decimal"
+                                aria-label="مساعدة ثابتة لهذا السطر"
+                                value={String(l.assistanceFixed ?? 0)}
+                                onChange={(e) =>
+                                  updateLineAssistance(l.key, 'assistanceFixed', e.target.value)
+                                }
+                              />
+                            </label>
+                          ) : null}
+                          {cartLineAssistance(l) > 0 ? (
+                            <span
+                              className={cn(
+                                'font-bold tabular-nums',
+                                cartLineAssistance(l) > cartLineSubtotal(l)
+                                  ? 'text-red-700'
+                                  : 'text-amber-900 dark:text-amber-300',
+                              )}
+                            >
+                              − {formatMoney(cartLineAssistance(l))} د.ج
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
-                      <span className="font-black tabular-nums">
-                        {formatMoney(cartLineSubtotal(l))} د.ج
-                      </span>
+                      <div className="text-left">
+                        <span className="block font-black tabular-nums">
+                          {formatMoney(cartLineNet(l))} د.ج
+                        </span>
+                        {cartLineAssistance(l) > 0 ? (
+                          <span className="block text-[11px] tabular-nums text-[var(--app-text-dim)] line-through">
+                            {formatMoney(cartLineSubtotal(l))}
+                          </span>
+                        ) : null}
+                      </div>
                       <button
                         type="button"
                         onClick={() => setLines((prev) => prev.filter((x) => x.key !== l.key))}

@@ -177,6 +177,20 @@ export class CreateOilSaleItemDto {
   @IsNumber()
   @Min(0)
   containerPrice?: number;
+
+  /** Assistance of THIS line, DZD per litre of this line's oil (needs OIL_SALES_ASSISTANCE_PER_LITRE). */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  assistancePerLitre?: number;
+
+  /** Fixed assistance of THIS line in DZD (needs OIL_SALES_ASSISTANCE_FIXED). */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  assistanceFixed?: number;
 }
 
 export class CreateOilSaleDto {

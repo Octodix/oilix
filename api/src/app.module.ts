@@ -25,6 +25,7 @@ import { SeasonModule } from './common/season/season.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { HealthModule } from './modules/health/health.module';
 import { HrModule } from './modules/hr/hr.module';
+import { MillAssistanceModule } from './modules/mill-assistance/mill-assistance.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { HrModule } from './modules/hr/hr.module';
     NotificationsModule,
     MobileModule,
     HrModule,
+    MillAssistanceModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

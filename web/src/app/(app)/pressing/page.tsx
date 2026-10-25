@@ -21,6 +21,7 @@ import { Card } from '@/components/ui/card';
 import { SelectionIndicator } from '@/components/ui/selection-indicator';
 import { TableSearchToolbar } from '@/components/ui/table-search-toolbar';
 import { SearchableClientPicker } from '@/components/pressing/searchable-client-picker';
+import { AssistancePanel } from '@/components/assistance/assistance-panel';
 import {
   WeighingsModal,
   type WeighingsModalClient,
@@ -245,6 +246,7 @@ export default function PressingPage() {
               : 'اختر نوع الزيتون أولاً ثم سجّل التصفية'
           }
         />
+        <AssistancePanel compact />
 
         <Card title="1 — نوع الزيتون">
           <div className="grid gap-3 sm:grid-cols-3">

@@ -52,6 +52,9 @@ type SaleDetail = {
     unitPrice: string | number;
     containerPrice?: string | number | null;
     lineGross: string | number;
+    assistancePerLitre?: string | number | null;
+    assistanceFixed?: string | number | null;
+    lineAssistance?: string | number | null;
   }>;
   paymentAllocations?: Array<{
     amount: string | number;
@@ -253,6 +256,17 @@ export default function SaleDetailPage({
                           ? `${item.containerCount} × ${item.containerName} = `
                           : ''
                       }${formatNumber(Number(item.quantityL), 1)} لتر × ${formatMoney(Number(item.unitPrice))} د.ج`}
+                  {Number(item.lineAssistance ?? 0) > 0 ? (
+                    <span className="block text-xs text-amber-900 dark:text-amber-300">
+                      مساعدة هذا السطر: − {formatMoney(Number(item.lineAssistance))} د.ج
+                      {Number(item.assistancePerLitre ?? 0) > 0
+                        ? ` (${formatMoney(Number(item.assistancePerLitre))} دج/لتر)`
+                        : ''}
+                      {Number(item.assistanceFixed ?? 0) > 0
+                        ? ` (${formatMoney(Number(item.assistanceFixed))} دج ثابتة)`
+                        : ''}
+                    </span>
+                  ) : null}
                 </span>
                 <span className="tabular-nums">{formatMoney(Number(item.lineGross))} د.ج</span>
               </li>
@@ -265,8 +279,11 @@ export default function SaleDetailPage({
         <p>الإجمالي: {formatMoney(Number(s.grossAmount))} د.ج</p>
         {Number(s.assistancePerLitreTotal ?? 0) > 0 ? (
           <p>
-            مساعدة اللتر ({formatMoney(Number(s.assistancePerLitre ?? 0))} دج/لتر):{' '}
-            {formatMoney(Number(s.assistancePerLitreTotal))} د.ج
+            مساعدة اللتر
+            {(s.items ?? []).some((i) => Number(i.lineAssistance ?? 0) > 0)
+              ? ' (حسب كل سطر)'
+              : ` (${formatMoney(Number(s.assistancePerLitre ?? 0))} دج/لتر)`}
+            : {formatMoney(Number(s.assistancePerLitreTotal))} د.ج
           </p>
         ) : null}
         {Number(s.assistanceFixed) > 0 ? (

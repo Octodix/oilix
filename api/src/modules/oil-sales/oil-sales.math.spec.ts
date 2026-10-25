@@ -379,3 +379,78 @@ describe('oil-sales.math', () => {
     });
   });
 });
+
+describe('assistance per line (each oil keeps its own rate)', () => {
+  it('two oils: 40 L GREEN × 900 with 50/L and 40 L TAIEB × 1,000 with 30/L', () => {
+    const r = computeSaleFromLines([
+      { kind: 'LOOSE', quantityL: 40, unitPrice: 900, assistancePerLitre: 50 },
+      { kind: 'LOOSE', quantityL: 40, unitPrice: 1000, assistancePerLitre: 30 },
+    ]);
+    expect(r.lines.map((l) => l.lineAssistance)).toEqual([2000, 1200]);
+    expect(r.lines.map((l) => l.lineNet)).toEqual([34000, 38800]);
+    expect(r.grossAmount).toBe(76000);
+    expect(r.assistancePerLitreTotal).toBe(3200);
+    expect(r.totalAssistance).toBe(3200);
+    expect(r.finalAmount).toBe(72800);
+    // Not 80 L × 50 (4,000) nor 80 L × 30 (2,400): the second oil never takes the first rate.
+    expect(r.totalAssistance).not.toBe(4000);
+    expect(r.totalAssistance).not.toBe(2400);
+  });
+
+  it('a line without assistance stays untouched when another line has some', () => {
+    const r = computeSaleFromLines([
+      { kind: 'LOOSE', quantityL: 10, unitPrice: 900, assistancePerLitre: 50 },
+      { kind: 'LOOSE', quantityL: 10, unitPrice: 1000 },
+    ]);
+    expect(r.lines.map((l) => l.lineAssistance)).toEqual([500, 0]);
+    expect(r.totalAssistance).toBe(500);
+    expect(r.finalAmount).toBe(18500);
+  });
+
+  it('fixed assistance per line adds up; per-litre and fixed can mix on one line', () => {
+    const r = computeSaleFromLines([
+      { kind: 'LOOSE', quantityL: 10, unitPrice: 900, assistanceFixed: 300 },
+      {
+        kind: 'CONTAINER',
+        capacityL: 5,
+        containerCount: 2,
+        unitPrice: 1000,
+        assistancePerLitre: 20,
+        assistanceFixed: 100,
+      },
+    ]);
+    expect(r.lines.map((l) => l.lineAssistance)).toEqual([300, 300]);
+    expect(r.assistanceFixed).toBe(400);
+    expect(r.assistancePerLitreTotal).toBe(200);
+    expect(r.totalAssistance).toBe(600);
+    expect(r.finalAmount).toBe(19000 - 600);
+  });
+
+  it('header per-litre rate equals the shared rate when all lines use the same one', () => {
+    const r = computeSaleFromLines([
+      { kind: 'LOOSE', quantityL: 10, unitPrice: 900, assistancePerLitre: 50 },
+      { kind: 'LOOSE', quantityL: 30, unitPrice: 1000, assistancePerLitre: 50 },
+    ]);
+    expect(r.assistancePerLitre).toBe(50);
+    expect(r.assistancePerLitreTotal).toBe(2000);
+  });
+
+  it('legacy sale-level assistance still applies on top of line assistance', () => {
+    const r = computeSaleFromLines(
+      [{ kind: 'LOOSE', quantityL: 10, unitPrice: 900, assistancePerLitre: 50 }],
+      { assistanceFixed: 100 },
+    );
+    expect(r.totalAssistance).toBe(600);
+  });
+
+  it('rejects a line whose assistance exceeds its own gross', () => {
+    expect(() =>
+      computeSaleFromLines([
+        { kind: 'LOOSE', quantityL: 1, unitPrice: 100, assistancePerLitre: 150 },
+      ]),
+    ).toThrow('ASSISTANCE_EXCEEDS_GROSS');
+    expect(() =>
+      resolveSaleLine({ kind: 'LOOSE', quantityL: 1, unitPrice: 100, assistancePerLitre: -1 }),
+    ).toThrow('INVALID_ASSISTANCE_PER_LITRE');
+  });
+});

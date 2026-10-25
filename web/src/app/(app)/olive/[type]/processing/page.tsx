@@ -35,6 +35,7 @@ import { Button } from '@/components/ui/button';
 import { ModulePageHero } from '@/components/ui/module-page-hero';
 import { TableSearchToolbar } from '@/components/ui/table-search-toolbar';
 import { ProcessingEditModal } from '@/components/processing/processing-edit-modal';
+import { AssistancePanel } from '@/components/assistance/assistance-panel';
 import { useSeasonReadOnly } from '@/hooks/use-season-read-only';
 import { ProcessingStatCard } from '@/components/processing/processing-stat-card';
 import { ProcessingTable, type ProcessingRow } from '@/components/processing/processing-table';
@@ -313,6 +314,9 @@ export default function ProcessingPage({ params }: { params: Promise<{ type: str
           subtitle={theme.subtitle}
           actions={heroActions}
         />
+
+        {/* Operator assistance: start / live cash held / close + handover, right where the work is. */}
+        <AssistancePanel />
 
         <div className="module-stats-enter grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <ProcessingStatCard

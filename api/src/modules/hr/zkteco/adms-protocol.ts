@@ -47,14 +47,44 @@ export type AdmsOptions = {
   /** Minutes between batch uploads when Realtime is off */
   transIntervalMinutes: number;
   timezoneHours: number;
+  /**
+   * Firmware without `pushver` in its handshake (older K/F-series terminals such as the
+   * K50 Pro family) speaks PUSH protocol 2.0: `Stamp`/`OpStamp`/`PhotoStamp` cursors and a
+   * 10-digit `TransFlag` bitmask instead of the newer named keys.
+   */
+  legacy?: boolean;
 };
 
+/** PUSH 2.0 bitmask: AttLog only — OpLog, photos, users, fingerprints and faces stay off. */
+const LEGACY_TRANSFLAG_ATTLOG_ONLY = '1000000000';
+
 export function admsHandshakeResponse(o: AdmsOptions): string {
+  const stamp = o.attlogStamp && /^\d+$/.test(o.attlogStamp) ? o.attlogStamp : '0';
+  if (o.legacy) {
+    return [
+      `GET OPTION FROM: ${o.serialNumber}`,
+      `Stamp=${stamp}`,
+      'OpStamp=9999',
+      'PhotoStamp=9999',
+      'ErrorDelay=60',
+      `Delay=${o.delaySeconds}`,
+      'TransTimes=00:00;12:00',
+      `TransInterval=${o.transIntervalMinutes}`,
+      `TransFlag=${LEGACY_TRANSFLAG_ATTLOG_ONLY}`,
+      `TimeZone=${o.timezoneHours}`,
+      'Realtime=1',
+      'Encrypt=0',
+    ].join('\n');
+  }
   return [
     `GET OPTION FROM: ${o.serialNumber}`,
-    `ATTLOGStamp=${o.attlogStamp && /^\d+$/.test(o.attlogStamp) ? o.attlogStamp : '0'}`,
+    `ATTLOGStamp=${stamp}`,
     'OPERLOGStamp=9999',
     'ATTPHOTOStamp=9999',
+    // Legacy cursor names as well: ignored by new firmware, read by mixed-generation ones.
+    `Stamp=${stamp}`,
+    'OpStamp=9999',
+    'PhotoStamp=9999',
     'ErrorDelay=60',
     `Delay=${o.delaySeconds}`,
     'TransTimes=00:00;12:00',
@@ -64,6 +94,11 @@ export function admsHandshakeResponse(o: AdmsOptions): string {
     'Realtime=1',
     'Encrypt=None',
   ].join('\n');
+}
+
+/** A terminal that does not announce `pushver` speaks the PUSH 2.0 dialect. */
+export function admsIsLegacyFirmware(query: Record<string, string | undefined>): boolean {
+  return !query.pushver;
 }
 
 export function nonEmptyLineCount(body: string): number {

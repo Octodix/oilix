@@ -446,3 +446,74 @@ describe('oil sale flow (service level)', () => {
     expect(updated.totalAmount).toBe(13000);
   });
 });
+
+describe('per-line assistance through the sale flow', () => {
+  const ASSIST_CASHIER: JwtPayload = {
+    sub: 'u1',
+    role: 'CASHIER',
+    permissions: [
+      'OIL_SALES_SALES_CREATE',
+      'OIL_SALES_ASSISTANCE_PER_LITRE',
+      'OIL_SALES_ASSISTANCE_FIXED',
+    ],
+  } as unknown as JwtPayload;
+
+  it('each oil line stores and applies its own assistance', async () => {
+    const ctx = setup();
+    const sale: Row = await ctx.service.createSale(
+      {
+        customerId: 'cust-1',
+        items: [
+          { ...twoOils([800, 1000])[0], assistancePerLitre: 50 },
+          { ...twoOils([800, 1000])[1], assistancePerLitre: 30, assistanceFixed: 100 },
+        ],
+      },
+      'u1',
+      ASSIST_CASHIER.permissions,
+      false,
+      'CASHIER',
+    );
+    expect(
+      sale.items.map((i: Row) => [
+        i.oilType,
+        Number(i.assistancePerLitre),
+        Number(i.assistanceFixed),
+        Number(i.lineAssistance),
+      ]),
+    ).toEqual([
+      ['GREEN', 50, 0, 500],
+      ['TAIEB', 30, 100, 250],
+    ]);
+    expect(Number(sale.totalAssistance)).toBe(750);
+    expect(sale.finalAmount).toBe(13000 - 750);
+    expect(ctx.state.session.cashSales).toBe(13000 - 750);
+  });
+
+  it('line assistance needs the permission', async () => {
+    const ctx = setup();
+    await expect(
+      sell(ctx, {
+        customerId: 'cust-1',
+        items: [{ ...twoOils([800, 1000])[0], assistancePerLitre: 50 }],
+      }),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(ctx.state.sales).toHaveLength(0);
+  });
+
+  it('a held sale keeps each line assistance when resumed', async () => {
+    const ctx = setup();
+    const hold: Row = await ctx.service.saveHold(
+      {
+        customerId: 'cust-1',
+        items: [
+          { ...twoOils()[0], assistancePerLitre: 50 },
+          { ...twoOils()[1], assistanceFixed: 200 },
+        ],
+      },
+      ASSIST_CASHIER,
+    );
+    expect(hold.payload.items.map((i: Row) => i.lineAssistance)).toEqual([500, 200]);
+    expect(hold.payload.totalAssistance).toBe(700);
+    expect(hold.totalAmount).toBe(13000 - 700);
+  });
+});

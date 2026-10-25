@@ -44,6 +44,10 @@ export type OilSaleReceiptPayload = {
       lineGross: string | number;
       oilType?: string | null;
       oilSource?: string | null;
+      /** Assistance recorded on this line (per-line rate / fixed). */
+      assistancePerLitre?: string | number | null;
+      assistanceFixed?: string | number | null;
+      lineAssistance?: string | number | null;
     }>;
   };
   settings: {
@@ -79,6 +83,8 @@ export function OilSaleReceiptDocument({ data }: { data: OilSaleReceiptPayload }
   const assistPerLitreTotal = Number(sale.assistancePerLitreTotal ?? 0);
   const hasOil = Number(sale.quantityL) > 0;
   const oilItems = (sale.items ?? []).filter((i) => i.kind !== 'CONTAINER_ONLY');
+  // New sales record assistance on each line; legacy sales only carry sale-level totals.
+  const lineLevelAssistance = (sale.items ?? []).some((i) => Number(i.lineAssistance ?? 0) > 0);
   // Header oil/price describe a single-oil sale only; mixed sales show them per line.
   const singleOil =
     new Set(oilItems.map((i) => `${i.oilSource}:${i.oilType}`)).size <= 1 &&
@@ -165,6 +171,7 @@ export function OilSaleReceiptDocument({ data }: { data: OilSaleReceiptPayload }
                   </div>
                 </>
               )}
+              <LineAssistanceRow item={item} />
             </div>
           ))}
         </div>
@@ -183,7 +190,9 @@ export function OilSaleReceiptDocument({ data }: { data: OilSaleReceiptPayload }
           <Row label="سعر / لتر" value={`${money(sale.unitPrice)} د.ج`} />
         ) : null}
         <Row label="المبلغ الإجمالي" value={`${money(sale.grossAmount)} د.ج`} />
-        {assistPerLitreTotal > 0 ? (
+        {assistPerLitreTotal > 0 && lineLevelAssistance ? (
+          <Row label="مساعدة اللتر (حسب كل سطر)" value={`− ${money(assistPerLitreTotal)} د.ج`} />
+        ) : assistPerLitreTotal > 0 ? (
           <>
             <p className="opacity-80">مساعدة اللتر:</p>
             <div className="flex items-start justify-between gap-2">
@@ -237,6 +246,28 @@ export function OilSaleReceiptDocument({ data }: { data: OilSaleReceiptPayload }
       {settings.receiptFooter ? (
         <p className="mt-3 text-center text-[10px] font-bold">{settings.receiptFooter}</p>
       ) : null}
+    </div>
+  );
+}
+
+/** Assistance of one line: its litres × its rate (+ its fixed amount). */
+function LineAssistanceRow({
+  item,
+}: {
+  item: NonNullable<OilSaleReceiptPayload['sale']['items']>[number];
+}) {
+  const total = Number(item.lineAssistance ?? 0);
+  if (!(total > 0)) return null;
+  const rate = Number(item.assistancePerLitre ?? 0);
+  const fixed = Number(item.assistanceFixed ?? 0);
+  const parts = [
+    rate > 0 ? `${money(rate)} دج × ${litres(item.quantityL)} لتر` : '',
+    fixed > 0 ? `${money(fixed)} دج ثابتة` : '',
+  ].filter(Boolean);
+  return (
+    <div className="flex items-start justify-between gap-2 opacity-90">
+      <span>مساعدة{parts.length ? ` (${parts.join(' + ')})` : ''}</span>
+      <span className="tabular-nums">− {money(total)} د.ج</span>
     </div>
   );
 }

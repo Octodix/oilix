@@ -1,5 +1,10 @@
 import * as net from 'net';
-import { admsHandshakeResponse, admsTable, normaliseSerial } from './adms-protocol';
+import {
+  admsHandshakeResponse,
+  admsIsLegacyFirmware,
+  admsTable,
+  normaliseSerial,
+} from './adms-protocol';
 import {
   coerceColumnMap,
   normaliseDeviceTime,
@@ -97,8 +102,27 @@ describe('ADMS protocol', () => {
     });
     expect(r).toContain('GET OPTION FROM: CQU4233560067');
     expect(r).toContain('ATTLOGStamp=42');
+    expect(r).toContain('Stamp=42');
     expect(r).toContain('TransFlag=TransData AttLog');
-    expect(r).not.toMatch(/EnrollFP|OpLog|AttPhoto|EnrollUser/);
+    expect(r).not.toMatch(/EnrollFP|OpLog\b|AttPhoto|EnrollUser/);
+  });
+
+  it('PUSH 2.0 firmware (no pushver) gets the legacy cursors and bitmask, attendance only', () => {
+    expect(admsIsLegacyFirmware({ SN: 'X', options: 'all' })).toBe(true);
+    expect(admsIsLegacyFirmware({ SN: 'X', options: 'all', pushver: '2.4.1' })).toBe(false);
+    const r = admsHandshakeResponse({
+      serialNumber: 'CQU4233560067',
+      attlogStamp: '42',
+      delaySeconds: 30,
+      transIntervalMinutes: 1,
+      timezoneHours: 1,
+      legacy: true,
+    });
+    expect(r).toContain('Stamp=42');
+    expect(r).toContain('OpStamp=9999');
+    expect(r).toContain('TransFlag=1000000000');
+    expect(r).toContain('TimeZone=1');
+    expect(r).not.toContain('ATTLOGStamp');
   });
 
   it('validates serial numbers and tables', () => {

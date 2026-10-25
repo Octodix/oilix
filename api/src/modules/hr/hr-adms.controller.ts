@@ -7,6 +7,7 @@ import { HrIngestService } from './hr-ingest.service';
 import { HrSettingsService } from './hr-settings.service';
 import {
   admsHandshakeResponse,
+  admsIsLegacyFirmware,
   admsTable,
   ADMS_ROUTES,
   bodyAsText,
@@ -88,6 +89,7 @@ export class HrAdmsController {
           delaySeconds: settings.devices.admsDelaySeconds,
           transIntervalMinutes: settings.devices.admsTransIntervalMinutes,
           timezoneHours: Math.round(device.timezoneOffsetMinutes / 60),
+          legacy: admsIsLegacyFirmware(q),
         }),
       );
       return;

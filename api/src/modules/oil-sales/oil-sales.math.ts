@@ -29,6 +29,10 @@ export function roundMoney(n: number): number {
 /**
  * Apply assistance to a precomputed gross using oil litres for per-litre assistance.
  * Empty-container revenue is in gross but not in oilQuantityL.
+ *
+ * `lineAssistance` carries the assistance already computed line by line (each oil
+ * line has its own per-litre rate and fixed amount). The sale-level fields remain
+ * for legacy callers and are applied on top of the line totals.
  */
 export function finalizeSaleAmounts(input: {
   grossAmount: number;
@@ -36,12 +40,15 @@ export function finalizeSaleAmounts(input: {
   assistanceFixed?: number;
   assistancePercent?: number;
   assistancePerLitre?: number;
+  lineAssistance?: { perLitreTotal: number; fixedTotal: number };
 }): SaleAmountResult {
   const grossAmount = roundMoney(Number(input.grossAmount));
   const oilQuantityL = roundMoney(Number(input.oilQuantityL) || 0);
-  const assistanceFixed = roundMoney(Number(input.assistanceFixed ?? 0));
+  const saleAssistanceFixed = roundMoney(Number(input.assistanceFixed ?? 0));
   const assistancePercent = Number(input.assistancePercent ?? 0);
-  const assistancePerLitre = roundMoney(Number(input.assistancePerLitre ?? 0));
+  const saleAssistancePerLitre = roundMoney(Number(input.assistancePerLitre ?? 0));
+  const linePerLitreTotal = roundMoney(Number(input.lineAssistance?.perLitreTotal ?? 0));
+  const lineFixedTotal = roundMoney(Number(input.lineAssistance?.fixedTotal ?? 0));
 
   if (!Number.isFinite(grossAmount) || grossAmount < 0) {
     throw new Error('INVALID_UNIT_PRICE');
@@ -49,17 +56,34 @@ export function finalizeSaleAmounts(input: {
   if (!Number.isFinite(oilQuantityL) || oilQuantityL < 0) {
     throw new Error('INVALID_QUANTITY');
   }
-  if (!Number.isFinite(assistanceFixed) || assistanceFixed < 0) {
+  if (!Number.isFinite(saleAssistanceFixed) || saleAssistanceFixed < 0) {
     throw new Error('INVALID_ASSISTANCE_FIXED');
   }
   if (!Number.isFinite(assistancePercent) || assistancePercent < 0 || assistancePercent > 100) {
     throw new Error('INVALID_ASSISTANCE_PERCENT');
   }
-  if (!Number.isFinite(assistancePerLitre) || assistancePerLitre < 0) {
+  if (!Number.isFinite(saleAssistancePerLitre) || saleAssistancePerLitre < 0) {
     throw new Error('INVALID_ASSISTANCE_PER_LITRE');
   }
+  if (!Number.isFinite(linePerLitreTotal) || linePerLitreTotal < 0) {
+    throw new Error('INVALID_ASSISTANCE_PER_LITRE');
+  }
+  if (!Number.isFinite(lineFixedTotal) || lineFixedTotal < 0) {
+    throw new Error('INVALID_ASSISTANCE_FIXED');
+  }
 
-  const assistancePerLitreTotal = roundMoney(oilQuantityL * assistancePerLitre);
+  const assistanceFixed = roundMoney(saleAssistanceFixed + lineFixedTotal);
+  const assistancePerLitreTotal = roundMoney(
+    oilQuantityL * saleAssistancePerLitre + linePerLitreTotal,
+  );
+  // Header rate: the single rate when every line shares it, else the effective
+  // average (total ÷ litres) so legacy consumers still read a meaningful value.
+  const assistancePerLitre =
+    linePerLitreTotal > 0
+      ? oilQuantityL > 0
+        ? roundMoney(assistancePerLitreTotal / oilQuantityL)
+        : 0
+      : saleAssistancePerLitre;
   const assistancePercentAmount = roundMoney((grossAmount * assistancePercent) / 100);
   const totalAssistance = roundMoney(
     assistanceFixed + assistancePercentAmount + assistancePerLitreTotal,
@@ -223,6 +247,10 @@ export type SaleLineInput = {
   unitPrice: number;
   pricingMode?: OilPricingMode;
   containerPrice?: number;
+  /** Assistance of this line only (DZD per litre of THIS line's oil). */
+  assistancePerLitre?: number;
+  /** Fixed assistance of this line only (DZD). */
+  assistanceFixed?: number;
 };
 
 export type ResolvedSaleLine = {
@@ -231,12 +259,47 @@ export type ResolvedSaleLine = {
   lineGross: number;
   containerCount: number | null;
   capacityL: number | null;
+  assistancePerLitre: number;
+  assistanceFixed: number;
+  /** quantityL × assistancePerLitre + assistanceFixed */
+  lineAssistance: number;
+  lineNet: number;
 };
 
 function assertPositiveIntCount(n: number) {
   if (!(n >= 1) || !Number.isInteger(n)) {
     throw new Error('INVALID_CONTAINER_QTY');
   }
+}
+
+/**
+ * Each line's assistance is computed from ITS OWN litres and ITS OWN rate; a second
+ * oil in the cart never inherits the first line's assistance. A line's assistance may
+ * not exceed the line's gross.
+ */
+function withLineAssistance(
+  base: Omit<ResolvedSaleLine, 'assistancePerLitre' | 'assistanceFixed' | 'lineAssistance' | 'lineNet'>,
+  input: SaleLineInput,
+): ResolvedSaleLine {
+  const assistancePerLitre = roundMoney(Number(input.assistancePerLitre ?? 0));
+  const assistanceFixed = roundMoney(Number(input.assistanceFixed ?? 0));
+  if (!Number.isFinite(assistancePerLitre) || assistancePerLitre < 0) {
+    throw new Error('INVALID_ASSISTANCE_PER_LITRE');
+  }
+  if (!Number.isFinite(assistanceFixed) || assistanceFixed < 0) {
+    throw new Error('INVALID_ASSISTANCE_FIXED');
+  }
+  const lineAssistance = roundMoney(base.quantityL * assistancePerLitre + assistanceFixed);
+  if (lineAssistance > base.lineGross + 1e-9) {
+    throw new Error('ASSISTANCE_EXCEEDS_GROSS');
+  }
+  return {
+    ...base,
+    assistancePerLitre,
+    assistanceFixed,
+    lineAssistance,
+    lineNet: roundMoney(base.lineGross - lineAssistance),
+  };
 }
 
 export function resolveSaleLine(input: SaleLineInput): ResolvedSaleLine {
@@ -256,13 +319,16 @@ export function resolveSaleLine(input: SaleLineInput): ResolvedSaleLine {
     if (!Number.isFinite(sellingPrice) || sellingPrice < 0) {
       throw new Error('INVALID_UNIT_PRICE');
     }
-    return {
-      kind: 'CONTAINER_ONLY',
-      quantityL: 0,
-      lineGross: roundMoney(containerCount * sellingPrice),
-      containerCount,
-      capacityL: input.capacityL != null ? Number(input.capacityL) : null,
-    };
+    return withLineAssistance(
+      {
+        kind: 'CONTAINER_ONLY',
+        quantityL: 0,
+        lineGross: roundMoney(containerCount * sellingPrice),
+        containerCount,
+        capacityL: input.capacityL != null ? Number(input.capacityL) : null,
+      },
+      input,
+    );
   }
 
   if (input.kind === 'CONTAINER') {
@@ -282,20 +348,26 @@ export function resolveSaleLine(input: SaleLineInput): ResolvedSaleLine {
     } else {
       lineGross = roundMoney(quantityL * unitPrice);
     }
-    return { kind: 'CONTAINER', quantityL, lineGross, containerCount, capacityL };
+    return withLineAssistance(
+      { kind: 'CONTAINER', quantityL, lineGross, containerCount, capacityL },
+      input,
+    );
   }
 
   const quantityL = Number(input.quantityL);
   if (!Number.isFinite(quantityL) || quantityL <= 0) {
     throw new Error('INVALID_QUANTITY');
   }
-  return {
-    kind: 'LOOSE',
-    quantityL: roundMoney(quantityL),
-    lineGross: roundMoney(quantityL * unitPrice),
-    containerCount: null,
-    capacityL: null,
-  };
+  return withLineAssistance(
+    {
+      kind: 'LOOSE',
+      quantityL: roundMoney(quantityL),
+      lineGross: roundMoney(quantityL * unitPrice),
+      containerCount: null,
+      capacityL: null,
+    },
+    input,
+  );
 }
 
 export function computeSaleFromLines(
@@ -314,12 +386,18 @@ export function computeSaleFromLines(
   if (!(grossAmount > 0) && !(quantityL > 0)) {
     throw new Error('EMPTY_LINES');
   }
+  // Per-line assistance: each line contributes litres × ITS rate + ITS fixed amount.
+  const linePerLitreTotal = roundMoney(
+    resolved.reduce((s, l) => s + l.quantityL * l.assistancePerLitre, 0),
+  );
+  const lineFixedTotal = roundMoney(resolved.reduce((s, l) => s + l.assistanceFixed, 0));
   const rest = finalizeSaleAmounts({
     grossAmount,
     oilQuantityL: quantityL,
     assistanceFixed: assistance?.assistanceFixed,
     assistancePercent: assistance?.assistancePercent,
     assistancePerLitre: assistance?.assistancePerLitre,
+    lineAssistance: { perLitreTotal: linePerLitreTotal, fixedTotal: lineFixedTotal },
   });
   return { ...rest, quantityL, lines: resolved };
 }
@@ -335,8 +413,9 @@ export type SaleOilShare = {
 
 /**
  * Splits one finalized sale into per-oil shares using its line snapshots.
- * Per-litre assistance follows litres; fixed/percent assistance follows each line's
- * share of the sale gross (empty-container revenue keeps its own share, unreported here).
+ * Assistance recorded on the line itself (per-line rate / fixed) is attributed exactly.
+ * Any remaining sale-level assistance (legacy sales) is spread: per-litre by litres,
+ * fixed/percent by each line's share of the sale gross.
  * Legacy sales without items fall back to the header oil.
  */
 export function splitSaleByOil(sale: {
@@ -351,14 +430,29 @@ export function splitSaleByOil(sale: {
     oilType?: string | null;
     quantityL: number;
     lineGross: number;
+    assistancePerLitre?: number | null;
+    lineAssistance?: number | null;
   }>;
 }): SaleOilShare[] {
   const gross = Number(sale.grossAmount) || 0;
-  const perLitreTotal = Number(sale.assistancePerLitreTotal) || 0;
-  const otherAssistance = Math.max(0, (Number(sale.totalAssistance) || 0) - perLitreTotal);
+  const items = sale.items ?? [];
+  // Assistance already attributed to lines (new sales); 0 for legacy sales.
+  const lineLevelPerLitre = items.reduce(
+    (s, l) => s + (Number(l.quantityL) || 0) * (Number(l.assistancePerLitre) || 0),
+    0,
+  );
+  const lineLevelTotal = items.reduce((s, l) => s + (Number(l.lineAssistance) || 0), 0);
+  const perLitreTotal = Math.max(
+    0,
+    (Number(sale.assistancePerLitreTotal) || 0) - lineLevelPerLitre,
+  );
+  const otherAssistance = Math.max(
+    0,
+    (Number(sale.totalAssistance) || 0) - lineLevelTotal - perLitreTotal,
+  );
 
-  const oilLines = (sale.items?.length
-    ? sale.items
+  const oilLines = (items.length
+    ? items
     : sale.oilSource && sale.oilType
       ? [
           {
@@ -366,6 +460,7 @@ export function splitSaleByOil(sale: {
             oilType: sale.oilType,
             quantityL: Number(sale.quantityL) || 0,
             lineGross: gross,
+            lineAssistance: 0,
           },
         ]
       : []
@@ -377,6 +472,7 @@ export function splitSaleByOil(sale: {
     const litres = Number(l.quantityL);
     const lineGross = Number(l.lineGross) || 0;
     const assistance =
+      (Number(l.lineAssistance) || 0) +
       (totalLitres > 0 ? (perLitreTotal * litres) / totalLitres : 0) +
       (gross > 0 ? (otherAssistance * lineGross) / gross : 0);
     const key = `${l.oilSource}:${l.oilType}`;

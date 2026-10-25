@@ -84,16 +84,41 @@ export function repriceCart(
   });
 }
 
+const round = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+export function cartLineLitres(line: DraftSaleLine): number {
+  if (line.kind === 'CONTAINER_ONLY') return 0;
+  return line.kind === 'CONTAINER'
+    ? Number(line.capacityL ?? 0) * Number(line.containerCount ?? 0)
+    : Number(line.quantityL ?? 0);
+}
+
+/** Gross of the line before its assistance. */
 export function cartLineSubtotal(line: DraftSaleLine): number {
-  const round = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
   if (line.kind === 'CONTAINER_ONLY') {
     return round(Number(line.containerCount ?? 0) * Number(line.containerPrice ?? line.unitPrice));
   }
-  const litres =
-    line.kind === 'CONTAINER'
-      ? Number(line.capacityL ?? 0) * Number(line.containerCount ?? 0)
-      : Number(line.quantityL ?? 0);
-  return round(litres * Number(line.unitPrice));
+  return round(cartLineLitres(line) * Number(line.unitPrice));
+}
+
+/** Assistance of THIS line only: its litres × its rate + its fixed amount. */
+export function cartLineAssistance(line: DraftSaleLine): number {
+  return round(
+    cartLineLitres(line) * Number(line.assistancePerLitre ?? 0) + Number(line.assistanceFixed ?? 0),
+  );
+}
+
+export function cartLineNet(line: DraftSaleLine): number {
+  return round(cartLineSubtotal(line) - cartLineAssistance(line));
+}
+
+/** Replaces the assistance of one cart line; other lines are untouched. */
+export function setCartLineAssistance(
+  lines: CartLine[],
+  key: string,
+  patch: { assistancePerLitre?: number; assistanceFixed?: number },
+): CartLine[] {
+  return lines.map((l) => (l.key === key ? { ...l, ...patch } : l));
 }
 
 export type HoldPayloadItem = {
@@ -107,12 +132,18 @@ export type HoldPayloadItem = {
   quantityL?: number | null;
   unitPrice: number;
   containerPrice?: number | null;
+  assistancePerLitre?: number | null;
+  assistanceFixed?: number | null;
 };
 
-/** Restores a held sale exactly as captured (same products, quantities and prices). */
+/** Restores a held sale exactly as captured (same products, quantities, prices and line assistance). */
 export function holdItemsToCartLines(items: HoldPayloadItem[], keyPrefix: string): CartLine[] {
   return items.map((it, i) => {
     const key = `${keyPrefix}-${i}`;
+    const assistance = {
+      assistancePerLitre: Number(it.assistancePerLitre ?? 0),
+      assistanceFixed: Number(it.assistanceFixed ?? 0),
+    };
     if (it.kind === 'CONTAINER_ONLY') {
       return {
         key,
@@ -123,6 +154,7 @@ export function holdItemsToCartLines(items: HoldPayloadItem[], keyPrefix: string
         containerCount: it.containerCount ?? 1,
         unitPrice: Number(it.containerPrice ?? it.unitPrice),
         containerPrice: Number(it.containerPrice ?? it.unitPrice),
+        ...assistance,
       };
     }
     if (it.kind === 'CONTAINER') {
@@ -136,6 +168,7 @@ export function holdItemsToCartLines(items: HoldPayloadItem[], keyPrefix: string
         capacityL: Number(it.capacityL ?? 0),
         containerCount: Number(it.containerCount ?? 1),
         unitPrice: Number(it.unitPrice),
+        ...assistance,
       };
     }
     return {
@@ -145,11 +178,15 @@ export function holdItemsToCartLines(items: HoldPayloadItem[], keyPrefix: string
       oilType: it.oilType ?? undefined,
       quantityL: Number(it.quantityL ?? 0),
       unitPrice: Number(it.unitPrice),
+      ...assistance,
     };
   });
 }
 
-/** Payload sent to the API; prices are the displayed ones and are re-checked server-side. */
+/**
+ * Payload sent to the API; prices are the displayed ones and are re-checked server-side.
+ * Assistance is carried per line so each oil keeps its own rate and fixed amount.
+ */
 export function cartToApiItems(lines: CartLine[]) {
   return lines.map((l) => ({
     kind: l.kind,
@@ -160,5 +197,8 @@ export function cartToApiItems(lines: CartLine[]) {
     quantityL: l.kind === 'LOOSE' ? l.quantityL : undefined,
     unitPrice: l.kind === 'CONTAINER_ONLY' ? undefined : l.unitPrice,
     containerPrice: l.kind === 'CONTAINER_ONLY' ? (l.containerPrice ?? l.unitPrice) : undefined,
+    assistancePerLitre:
+      l.kind === 'CONTAINER_ONLY' ? undefined : Number(l.assistancePerLitre ?? 0) || undefined,
+    assistanceFixed: Number(l.assistanceFixed ?? 0) || undefined,
   }));
 }

@@ -15,6 +15,10 @@ import {
   type HrPayslipData,
 } from '@/components/print/hr-payslip-document';
 import { OIL_SALE_RECEIPT_API } from '@/lib/oil-sale-receipt';
+import {
+  MillHandoverReceiptDocument,
+  type MillHandoverReceiptPayload,
+} from '@/components/print/mill-handover-receipt-document';
 import { renderPrintHtml } from '@/lib/print-html';
 import {
   dayReportCopies,
@@ -41,6 +45,29 @@ export function oilSaleClientReceiptRequest(
         <OilSaleClientReceiptDocument data={data} />,
         route.paper,
         `وصل تسليم ${data.sale.receiptNumber}`,
+      );
+    },
+  };
+}
+
+/** وصل تسليم المداخيل — assistant's cash handover to the primary operator (receipt printer). */
+export function millHandoverReceiptRequest(
+  sessionId: string,
+  opts: { isReprint?: boolean; data?: MillHandoverReceiptPayload } = {},
+): PrintRequest {
+  return {
+    documentType: 'MILL_RECEIPT',
+    documentRef: `handover:${sessionId}`,
+    target: 'receipt',
+    isReprint: opts.isReprint,
+    render: async (route) => {
+      const data =
+        opts.data ??
+        (await api.get<MillHandoverReceiptPayload>(`/mill-assistance/sessions/${sessionId}/receipt`)).data;
+      return renderPrintHtml(
+        <MillHandoverReceiptDocument data={data} />,
+        route.paper,
+        `وصل تسليم المداخيل ${data.session.reference}`,
       );
     },
   };
