@@ -1,3 +1,5 @@
+> **OBSOLÈTE — ne pas utiliser sur un serveur en production.** Cette procédure écrase le projet et **vide la base de données**. Pour toute mise à jour, suivre **[UPDATE-OFFLINE.md](./UPDATE-OFFLINE.md)** (hors ligne, sans GitHub, données conservées).
+
 # Oilix — Mise à jour complète hors ligne (écraser tout)
 
 Guide pour **remplacer tout le projet** sur le serveur Ubuntu quand :

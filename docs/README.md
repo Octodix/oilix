@@ -5,7 +5,8 @@
 | **[DEPLOY-FROM-ZERO.md](./DEPLOY-FROM-ZERO.md)** | **New / reinstalled Ubuntu server** (start here) |
 | **[DEPLOY-CHECKLIST.md](./DEPLOY-CHECKLIST.md)** | Short checkbox list while installing |
 | **[nginx-oilix.conf](./nginx-oilix.conf)** | Nginx site config to copy |
-| **[UPDATE-DEPLOYMENT.md](./UPDATE-DEPLOYMENT.md)** | Overwrite update via WinSCP (no Git / no internet) |
+| **[UPDATE-OFFLINE.md](./UPDATE-OFFLINE.md)** | **Every update of a running server** (offline, keeps data) |
+| [UPDATE-DEPLOYMENT.md](./UPDATE-DEPLOYMENT.md) | Obsolete — full overwrite that wipes the database; do not use on a server in production |
 | **[DEPLOY-UBUNTU.md](./DEPLOY-UBUNTU.md)** | Older LAN guide (prefer FROM-ZERO) |
 
 ## Quick facts

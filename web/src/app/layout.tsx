@@ -1,11 +1,20 @@
 import type { Metadata } from 'next';
-import { Cairo } from 'next/font/google';
+import localFont from 'next/font/local';
 import './globals.css';
 import { Providers } from '@/components/providers';
 
-const cairo = Cairo({
-  subsets: ['arabic', 'latin'],
+// Bundled (SIL OFL, see fonts/OFL-Cairo.txt): the server builds offline, so no Google Fonts fetch.
+const cairo = localFont({
+  src: [
+    { path: './fonts/Cairo_400Regular.ttf', weight: '400', style: 'normal' },
+    { path: './fonts/Cairo_500Medium.ttf', weight: '500', style: 'normal' },
+    { path: './fonts/Cairo_600SemiBold.ttf', weight: '600', style: 'normal' },
+    { path: './fonts/Cairo_700Bold.ttf', weight: '700', style: 'normal' },
+    { path: './fonts/Cairo_800ExtraBold.ttf', weight: '800', style: 'normal' },
+    { path: './fonts/Cairo_900Black.ttf', weight: '900', style: 'normal' },
+  ],
   variable: '--font-cairo',
+  display: 'swap',
 });
 
 export const metadata: Metadata = {
