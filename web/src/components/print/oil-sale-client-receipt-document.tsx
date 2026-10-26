@@ -1,4 +1,4 @@
-import { formatMoney, formatNumber } from '@/lib/utils';
+import { formatNumber } from '@/lib/utils';
 import { oilMeta, oilSourceMeta } from '@/lib/sales-nav';
 import type { OilSaleReceiptPayload } from '@/components/print/oil-sale-receipt-document';
 import { saleCustomerName } from '@/lib/sales-cart';
@@ -60,19 +60,11 @@ function itemQty(item: NonNullable<OilSaleReceiptPayload['sale']['items']>[numbe
   return formatNumber(Number(item.quantityL), 1);
 }
 
-function itemUnitPrice(item: NonNullable<OilSaleReceiptPayload['sale']['items']>[number]) {
-  if (item.kind === 'CONTAINER_ONLY') {
-    return formatMoney(Number(item.containerPrice ?? item.unitPrice));
-  }
-  return formatMoney(Number(item.unitPrice));
-}
-
 /**
- * Client-facing delivery slip (وصل تسليم) — table layout like shop thermal slips.
+ * Client-facing delivery slip (وصل تسليم) — items and quantities only, no prices.
  */
 export function OilSaleClientReceiptDocument({ data }: { data: OilSaleReceiptPayload }) {
   const { sale, settings, company } = data;
-  const assistance = Number(sale.totalAssistance || 0);
   const remaining = Number(sale.remainingAmount ?? 0);
   const isPaid =
     sale.status === 'COMPLETED' &&
@@ -168,52 +160,25 @@ export function OilSaleClientReceiptDocument({ data }: { data: OilSaleReceiptPay
               <th className="oil-client-receipt-th">الرقم</th>
               <th className="oil-client-receipt-th">التعيين</th>
               <th className="oil-client-receipt-th">الكمية</th>
-              <th className="oil-client-receipt-th">س. وحدة</th>
-              <th className="oil-client-receipt-th">المبلغ</th>
             </tr>
           </thead>
           <tbody>
             {lines.map((item, i) => (
               <tr key={i}>
                 <td className="oil-client-receipt-td tabular-nums">{i + 1}</td>
-                <td className="oil-client-receipt-td font-bold">
-                  {itemDesignation(item)}
-                  {Number(item.lineAssistance ?? 0) > 0 ? (
-                    <span className="block text-[9px] font-normal opacity-80">
-                      مساعدة −{formatMoney(Number(item.lineAssistance))}
-                      {Number(item.assistancePerLitre ?? 0) > 0
-                        ? ` (${formatMoney(Number(item.assistancePerLitre))}/ل)`
-                        : ''}
-                    </span>
-                  ) : null}
-                </td>
+                <td className="oil-client-receipt-td font-bold">{itemDesignation(item)}</td>
                 <td className="oil-client-receipt-td tabular-nums">{itemQty(item)}</td>
-                <td className="oil-client-receipt-td tabular-nums">{itemUnitPrice(item)}</td>
-                <td className="oil-client-receipt-td tabular-nums">
-                  {formatMoney(Number(item.lineGross))}
-                </td>
               </tr>
             ))}
             {lines.length === 0 ? (
               <tr>
-                <td className="oil-client-receipt-td" colSpan={5}>
+                <td className="oil-client-receipt-td" colSpan={3}>
                   —
                 </td>
               </tr>
             ) : null}
           </tbody>
         </table>
-      </div>
-
-      <div className="mt-3 space-y-1 text-[11px]">
-        <TotalRow label="المجموع" value={formatMoney(Number(sale.grossAmount))} />
-        {assistance > 0 ? (
-          <TotalRow label="المساعدات" value={formatMoney(assistance)} />
-        ) : null}
-        <TotalRow label="المجموع الكلي" value={formatMoney(Number(sale.finalAmount))} bold />
-        {remaining > 0 ? (
-          <TotalRow label="المتبقي" value={formatMoney(remaining)} bold />
-        ) : null}
       </div>
 
       {isCancelled ? (
@@ -223,23 +188,6 @@ export function OilSaleClientReceiptDocument({ data }: { data: OilSaleReceiptPay
       {settings.receiptFooter ? (
         <p className="mt-3 text-center text-[10px] font-bold opacity-80">{settings.receiptFooter}</p>
       ) : null}
-    </div>
-  );
-}
-
-function TotalRow({
-  label,
-  value,
-  bold,
-}: {
-  label: string;
-  value: string;
-  bold?: boolean;
-}) {
-  return (
-    <div className={`flex items-baseline justify-between gap-3 ${bold ? 'font-black' : 'font-bold'}`}>
-      <span>{label}</span>
-      <span className="tabular-nums">{value}</span>
     </div>
   );
 }
